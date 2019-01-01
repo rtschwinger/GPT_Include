@@ -1,0 +1,271 @@
+// WebClient.ci - Functions for controlling web clients
+//
+// 8/29/08 Eric Black
+
+
+//IF IsWebClient() = TRUE THEN
+//    ShutdownIdleWebClient(15);
+//ELSE
+//    LogoutIdle(15);
+//END
+
+
+INT		mcNoError = 0;
+INT 	mcFailed = -1;
+INT		mcErrCancelled = 299;
+
+INT		mhShutdownIdleTask = -1;
+
+
+// Shut down a local or remote web client runtime.
+//
+// Arguments:
+//
+//   sClient  		Name of the client node to shut down. The node name is set by the Citect.ini 
+// 					parameter [Client]Node and on web clients is automatically set to the 
+// 					computer's name. Leave blank (default) to shut down the local web client 
+// 					runtime.
+//
+//   bForce			True 	Don't wait for the operator (default)
+//					False	Allow the operator to abort shutdown
+//
+//   nTimeoutSecs	Number of seconds to wait for the operator to abort the shutdown (default = 0)
+//
+// Returns 0 if successful, otherwise returns a Cicode error
+//
+// Note: This must be called from a server the web client is connected to (I/O, Report, Alarm, or 
+// Trend) if a remote client name is specified.
+//
+INT
+FUNCTION
+ShutdownWebClient(STRING sClient = "", INT bForce = TRUE, INT nTimeoutSecs = 0)
+
+	INT		cErrInvalidArgument = 274;
+
+	INT		nError;
+	
+	IF (sClient = "") OR (sClient = ParameterGet("Lan", "Node", "")) THEN	// Shut down this Citect (if it's a web client)
+
+		IF IsWebClient() = TRUE THEN
+			
+			IF bForce = FALSE THEN
+				nError = WaitForUser(nTimeoutSecs)
+				IF nError = mcErrCancelled THEN
+					RETURN nError;
+				END 
+			END
+			
+			ES_LogoutUser(1);
+			RETURN ShutdownLocal();
+
+		ELSE
+			RETURN cErrInvalidArgument;
+		END
+
+	ELSE
+		ES_LogoutUser(1);
+		RETURN ShutdownRemote(sClient, bForce, nTimeoutSecs);
+	END
+END
+
+
+// Automatically close a web client if there has been no user activity
+// for the specified number of minutes. To stop the current logout, set
+// nIdleMinutes to 0 (or a negative number). 
+//
+// Returns 0 if shutdown task was started or -1 if task was not started
+// because this is not a web client.
+//
+INT
+FUNCTION
+ShutdownIdleWebClient(INT nIdleMinutes, INT nDialogTime)
+
+	IF IsWebClient() = TRUE THEN
+		IF mhShutdownIdleTask <> -1 THEN
+			TaskKill(mhShutdownIdleTask);
+			mhShutdownIdleTask = -1;
+		END
+	
+		IF nIdleMinutes > 0 THEN
+			mhShutdownIdleTask = TaskNew("_ShutdownIdle", IntToStr(nIdleMinutes) + "," + IntToStr(nDialogTime), 0);
+		END
+		RETURN mcNoError;
+	ELSE
+		RETURN mcFailed;
+	END
+END
+
+
+// Returns TRUE if this node is a web client, otherwise returns FALSE
+INT
+FUNCTION
+IsWebClient()
+	STRING sRunPath;
+	STRING sTmpPath;
+	
+	// Check if the [Internet]Client parameter is set (but that's also used by IDC clients)
+	IF StrToInt(ParameterGet("Internet", "Client", "0")) = 1 THEN
+		sRunPath = PathToStr("[RUN]");
+		sTmpPath = GetEnv("TMP");
+		
+		IF StrLength(sTmpPath) > 0 THEN
+			// Check if the Citect project is installed in the %TMP% path (not used by IDC clients)
+			IF StrSearch(0, sRunpath, sTmpPath) <> -1 THEN
+				RETURN TRUE;
+			END
+		END
+	END
+	
+	RETURN FALSE;
+END
+
+
+///////////////////////
+// Private functions //
+///////////////////////
+
+
+// Check if the current user has been idle for the specified amount
+// of time. If idle then display a prompt to allow the user to cancel,
+// and wait 60 seconds. If user does not cancel, the web client closes.
+//
+// Don't call this function directly, this function is created as a 
+// task from ShutdownIdleWebClient
+//
+!PRIVATE
+FUNCTION
+_ShutdownIdle(INT nIdleMinutes, INT nDelaySeconds)
+	INT cFormNoWait = 1;
+	INT cSoundQuestion = 2;
+	
+	INT	hForm;
+	INT	nLastCommandTime;
+	INT	X;
+	INT Y;
+	INT hAN;
+	INT	nNewX;
+	INT nNewY;
+	INT nNewAN;
+	INT nIdleSeconds;
+	//INT nDelaySeconds = 60;
+	INT nDelayStartTime;
+	
+	ErrSet(1);
+	nIdleSeconds = nIdleMinutes * 60;
+	
+	WHILE TRUE DO
+		Sleep(nIdleSeconds / 2);
+		nLastCommandTime = UserInfo(4);
+
+		IF (TimeCurrent() - nLastCommandTime) >= nIdleSeconds THEN
+			
+			DspGetMouse(nNewX, nNewY);
+			nNewAN = KeyGetCursor();
+			
+			IF nNewX = X AND nNewY = Y AND nNewAN = hAN THEN
+				IF nDelaySeconds > 0 THEN
+					Beep(cSoundQuestion);
+					IF WaitForUser(nDelaySeconds) <> mcErrCancelled THEN
+						ES_LogoutUser(1);
+						ShutdownLocal();
+					END
+				ELSE
+					ES_LogoutUser(1);
+					ShutdownLocal();
+				END
+			END
+			
+			DspGetMouse(X, Y);
+			hAN = KeyGetCursor();
+		END
+	END
+END
+
+
+// Prompt the user to abort the shutdown and wait for user input
+PRIVATE
+INT
+FUNCTION
+WaitForUser(INT nTimeoutSecs)
+	INT		cFrmAlwaysOnTop = 8;
+	INT		cFrmNoWait = 1;
+	INT		cFrmCancelButton = 2;
+
+	INT		nStartTime;
+	INT		hCancelPrompt;
+	INT		hCancelForm;
+	INT		nRemainingSecs;	
+	
+	nStartTime = TimeCurrent();
+	hCancelForm = FormNew("@(Shutdown)", 35, 2, cFrmAlwaysOnTop);
+	nRemainingSecs = nTimeoutSecs - (TimeCurrent() - nStartTime);
+	hCancelPrompt = FormPrompt(0, 0, "@(Shutting down web client in) " + nRemainingSecs:# + " @(seconds).");
+	FormButton(14, 1, " @(Cancel) ", 0, cFrmCancelButton);
+	FormRead(cFrmNoWait);
+	
+	WHILE nRemainingSecs > 0 DO
+		SleepMS(500);
+		nRemainingSecs = nTimeoutSecs - (TimeCurrent() - nStartTime);
+
+		IF FormActive(hCancelForm) = TRUE THEN
+			FormSetText(hCancelForm, hCancelPrompt, "@(Shutting down web client in) " + nRemainingSecs:# + " @(seconds).");
+		ELSE	// User closed form
+			RETURN mcErrCancelled;
+		END
+	END
+	
+	RETURN mcNoError;
+END
+
+
+// Command the remote node to shut down
+PRIVATE
+INT
+FUNCTION
+ShutdownRemote(STRING sClient, INT bForce, INT nTimeoutSecs)
+	INT		cMsgToNode = 2;
+	INT		cMsgOnline = 1;
+	INT		cErrNameNotExist = 289;
+	INT		cRpcBlocking = 0;
+
+	INT		hClient;
+	STRING	sResult;
+
+	hClient = MsgOpen(sClient, cMsgToNode, 0);
+
+	IF hClient <> -1 THEN
+		IF MsgState(hClient) = cMsgOnline THEN
+			sResult = MsgRPC(hClient, "ShutdownWebClient", "^"^"," + bForce:# + "," + nTimeoutSecs:#, cRpcBlocking);
+
+			IF sResult <> "" THEN
+				RETURN sResult;
+			END
+		END
+	END
+
+	RETURN cErrNameNotExist;
+END
+
+
+// Shut down the local Citect runtime
+PRIVATE
+INT
+FUNCTION
+ShutdownLocal()
+	INT		cWindowHidden = 0;
+
+	INT		hGetCurrentPID;
+    INT 	hWindow;
+	INT		hShellExecute;
+	STRING	sPID;
+
+	TaskNew("Message", "^"@(Shutdown)^",^"@(Shutting down).^",0", 0);
+	SleepMS(500);
+	hWindow = WinGetWndHnd();
+	hShellExecute = DLLOpen("shell32.dll", "ShellExecuteA", "JJCCCCJ");
+	hGetCurrentPID = DLLOpen("kernel32.dll", "GetCurrentProcessId", "J");
+	sPID = DLLCall(hGetCurrentPID, "");
+
+	DLLCall(hShellExecute, hWindow:# + ",^"^",^"TaskKill.exe^",^"/F /PID " + sPID + "^", ^"^"," + cWindowHidden:#);
+	RETURN mcNoError;
+END

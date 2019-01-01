@@ -1,0 +1,138 @@
+//These functions wrap the RPC call to various functions, mainly to simplify conversion from client side to server side code (via RPC call).
+//Main purpose is so that the functions work with web clients and remote thick clients
+//They each have same parameters as the cooresponding Device function, with the added hRPC argument as 1st argument.
+//This facilitates use of the Search/Replace feature to make the needed changes.
+//Before calling any of these functions, the hRPC will need to be initialized using MsgOpen() to use a server component (such as "Alarm")...example:
+//			//Open RPC message session to alarm server
+//			hRPC = MsgOpen("Alarm", 0, 0);
+//			...
+//			Execute code with the rpcxxxx() functions as needed.
+//			...
+//			MsgClose("Alarm", hRPC);
+
+//=================================================================================================================
+//Device functions (used mainly for user DBF files)
+
+INT FUNCTION
+rpcDevOpen(INT hRPC, STRING sName, INT nMode = 0)
+	RETURN StrToInt(MsgRPC(hRPC, "DevOpen", "^"" + sName + "^"," + IntToStr(nMode), 0));
+END
+
+INT FUNCTION
+rpcDevClose(INT hRPC, INT hDev, INT nMode = 0)
+	RETURN StrToInt(MsgRPC(hRPC, "DevClose", IntToStr(hDev) + "," + IntToStr(nMode), 0));
+END
+
+
+INT FUNCTION
+rpcDevSize(INT hRPC, INT hDev)
+	RETURN StrToInt(MsgRPC(hRPC, "DevSize", IntToStr(hDev), 0));
+END
+
+INT FUNCTION
+rpcDevEOF(INT hRPC, INT hDev)
+	RETURN StrToInt(MsgRPC(hRPC, "DevEOF", IntToStr(hDev), 0));
+END
+
+
+INT FUNCTION
+rpcDevFirst(INT hRPC, INT hDev)
+	RETURN StrToInt(MsgRPC(hRPC, "DevFirst", IntToStr(hDev), 0));
+END
+
+INT FUNCTION
+rpcDevNext(INT hRPC, INT hDev)
+	RETURN StrToInt(MsgRPC(hRPC, "DevNext", IntToStr(hDev), 0));
+END
+
+INT FUNCTION
+rpcDevPrev(INT hRPC, INT hDev)
+	RETURN StrToInt(MsgRPC(hRPC, "DevPrev", IntToStr(hDev), 0));
+END
+
+INT FUNCTION
+rpcDevSeek(INT hRPC, INT hDev, INT nOffset)
+	RETURN StrToInt(MsgRPC(hRPC, "DevSeek", IntToStr(hDev) + "," + IntToStr(nOffset), 0));
+END
+
+
+INT FUNCTION
+rpcDevRecNo(INT hRPC, INT hDev)
+	RETURN StrToInt(MsgRPC(hRPC, "DevRecNo", IntToStr(hDev), 0));
+END
+
+
+INT FUNCTION
+rpcDevFind(INT hRPC, INT hDev, STRING sFind, STRING sField)
+	RETURN StrToInt(MsgRPC(hRPC, "DevFind", IntToStr(hDev) + ",^"" + sFind + "^",^"" + sField + "^"", 0));
+END
+
+
+STRING FUNCTION
+rpcDevGetField(INT hRPC, INT hDev, STRING sField)
+	RETURN MsgRPC(hRPC, "DevGetField", IntToStr(hDev) + ",^"" + sField + "^"", 0);
+END
+
+//=================================================================================================================
+//Alarm functions
+
+INT FUNCTION 
+rpcAlarmFirstTagRec(INT hRPC, STRING sTag, STRING sName, STRING sDescription, STRING sCluster = "")
+	RETURN StrToInt(MsgRPC(hRPC, "AlarmFirstTagRec", "^"" + sTag + "^",^"" + sName + "^",^"" + sDescription + "^",^"" + sCluster + "^"", 0));
+END
+
+STRING FUNCTION 
+rpcAlarmGetFieldRec(INT hRPC, INT nRecord, STRING sField, INT nVer = 0, STRING sCluster = "")
+	RETURN MsgRPC(hRPC, "AlarmGetFieldRec", IntToStr(nRecord) + ",^"" + sField + "^"," + IntToStr(nVer) + ",^"" + sCluster + "^"", 0);
+END
+
+INT FUNCTION
+rpcAlarmQueryFirstRec(INT hRPC);
+	RETURN StrToInt(MsgRPC(hRPC , "_AlarmQueryFirstRec" , "0,0,-1" , 0));
+END
+
+INT FUNCTION
+rpcAlarmQueryNextRec(INT hRPC, INT nRecord);
+	RETURN StrToInt(MsgRPC(hRPC , "_AlarmQueryNextRec" , IntToStr(nRecord) + ",0,0,-1" , 0));
+END
+
+
+//=================================================================================================================
+//Semaphore functions
+
+INT FUNCTION
+rpcSemOpen(INT hRPC, STRING sName, INT sMode)
+	RETURN StrToInt(MsgRPC(hRPC, "SemOpen", "^"" + sName + "^"," + IntToStr(sMode), 0));
+END
+
+INT FUNCTION
+rpcSemClose(INT hRPC, INT hSem)
+	RETURN StrToInt(MsgRPC(hRPC, "SemClose", IntToStr(hSem), 0));
+END
+
+INT FUNCTION
+rpcSemWait(INT hRPC, INT hSem, INT nTimeout)
+	RETURN StrToInt(MsgRPC(hRPC, "SemWait", IntToStr(hSem) + "," + IntToStr(nTimeout), 0));
+END
+
+//This function is in addition to the rpcSemWait() - it actually works, plus allows for timeout in ms
+INT FUNCTION	
+rpcSemWaitEx(INT hRPC, INT hSem, INT nTimeoutMS)
+	INT nSemWaitStatus;
+	INT nSemWaitCount;
+
+	nSemWaitStatus = rpcSemWait(hRPC, hSem, 0);
+	WHILE nSemWaitStatus <> 0 AND nSemWaitCount < nTimeoutMS DO
+		SleepMS(10);
+		nSemWaitCount = nSemWaitCount + 10;
+		nSemWaitStatus = rpcSemWait(hRPC, hSem, 0);
+	END
+	
+	RETURN StrToInt(nSemWaitStatus);
+END
+
+INT FUNCTION
+rpcSemSignal(INT hRPC, INT hSem)
+	RETURN StrToInt(MsgRPC(hRPC, "SemSignal", IntToStr(hSem), 0));
+END
+

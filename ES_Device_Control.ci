@@ -1,0 +1,1777 @@
+//Description - Device Control screen allowing dynamic enabling/disabling of devices in runtime
+//Author      - Saeed Ghezawi
+//Revsion By  - N/A
+//Company	  - Schneider Electric
+//Group		  - Software Applications Group
+//Version	  - V1.0.0
+//Date		  - 6/01/2012
+
+//Naming conventions followed:
+//		-Module Variable       -> All caps with underscores between words
+//		-Local Variable Tags   -> First character of each word caps with no spaces/no underscores
+//		-Cicode Local Variable -> Data type identifier letter followed by first character of each
+//								  word caps with no spaces/no underscores	
+//									-Integer - i
+//									-Boolean - b (Special purpose INT)
+//									-Handle  - h (Special purpose INT)
+//									-String  - s
+//									-Real    - r
+//									-Object  - o
+
+//This product uses the following PLSCADA resources (Required for project to use the screen):
+//		-Graphics page
+//			ES_Device_Control_1024x768 	-> Main screen (1024x768)
+//			ES_Device_Control_1280x1024 -> Main screen (1280x1024)
+//			ES_Device_Control_1280x720 	-> Main screen (1280x720)
+//			ES_Device_Control_1280x768 	-> Main screen (1280x768)
+//			ES_Device_Control_1680x1050 -> Main screen (1680x1050)
+//			ES_Device_Control_1920x1080 -> Main screen (1920x1080)
+//			ES_Device_Control_1920x1200 -> Main screen (1920x1200)
+
+//		-Local Variable Tags:
+//			DC_ScrollIndex
+//					Data Type  = LONG
+//				    Zero Scale = 1000000
+//				    Full Scale = 0
+//					Comment    = Indicates where slider is currently on DC screen
+//			DC_ScrollSpan
+//					Data Type  = LONG
+//					Comment    = Indicates amount slider must move to next item
+//			DC_SelectedDevice1 through DC_SelectedDeviceXX where XX is the number of rows displayed on main screen
+//					Data Type  = INT
+//					Comment    = Indicates devices that should be shown on the screen
+
+//		-System Devices
+//			DC_DBF
+//				Name      = DC_DBF
+//				Format 	  = {IODEVICE,32}
+//				File Name = [RUN]:DisDev.dbf
+//				Type      = dBASE_DEV
+//				No. Files = 1
+//				Comment = Stores disabled devices
+
+//		-System Fonts
+//			DC_Font
+//				Font Name		 = DC_Font
+//				Font Type        = Arial
+//				Pixel Size       = 14
+//				Foreground Color = BLACK
+//				Comment          = Font used on device control screen
+
+//		-Cicode Files
+//			ES_Scrollbar.ci (For scrollbar support)
+//			ES_User.ci (For system login support)
+//			ES_Misc.ci (GetClusterFromEquip)
+
+//This file includes the following Cicode functions (In order they appear):
+// - Event Functions
+//			DC_Init_Screen()
+//			DC_Uninit_Screen()
+//			DC_Update_Screen()
+//(INT) 	DC_Filter_Record(STRING sIODevice , STRING sIOServer , STRING sStatus)
+//			DC_SetDeviceStatus(STRING sIODevice, INT bDisable, INT bHistMode, STRING sCluster = "")
+//			DC_UpdateDBF(STRING sIODevice , INT iMode)
+//			DC_DisableDevicesOnStartup()
+
+// - User Interface Functions
+//			DC_Display_Menu(INT iRowSelected)
+//			DC_Enable_All()
+//			DC_Disable_All()
+//			DC_Filter()
+
+// - Graphics to Cicode Interface Functions
+//(INT)		DC_GetScrollbarHidden()
+//(INT)		DC_GetFilterState()
+
+//Module variables (THESE ARE GLOBAL ONLY TO THIS CICODE FILE)
+//Enumerations -> Citect defined constants
+MODULE STRING DEVICE_RUNNING_PRIMARY = "1";
+MODULE STRING DEVICE_RUNNING_STANDBY = "2";
+MODULE STRING DEVICE_STARTING = "4";
+MODULE STRING DEVICE_STOPPING = "8";
+MODULE STRING DEVICE_OFFLINE = "16";
+MODULE STRING DEVICE_DISABLED = "32";
+MODULE STRING DEVICE_STANDBYWRITE = "66";
+//MODULE STRING MODE_NORMAL = "0";			//AR 130613
+//MODULE STRING MODE_DISABLED = "1";			//AR 130613 - Not Used
+//MODULE STRING MODE_MAINTENANCE = "2";		//AR 130613
+//MODULE STRING MODE_OUTOFSERVICE = "4";		//AR 130613
+MODULE INT CFGIOSERVER_MODE = 12;
+MODULE INT PIOSERVER_MODE = 16;
+MODULE INT IOSERVER_MODE = 17;
+MODULE INT STATUS_MODE = 3;
+MODULE INT ENABLE_DEVICE = 0;
+MODULE INT DISABLE_DEVICE = 1;
+MODULE INT CLIENT_SIDE_MODE = 0;
+MODULE INT BLOCKING_MODE = 0;
+MODULE INT NON_BLOCKING_MODE = 1;
+MODULE INT EQUIP_EOF = 412;
+MODULE INT DBF_EOF = 294;
+MODULE INT SHARED_MODE = 0;
+MODULE INT CONTROL_MODE = 1;
+MODULE INT PACK_DBF = 1;
+MODULE INT PAGE_WIDTH = 12;
+MODULE INT PAGE_HEIGHT = 13;
+MODULE INT ERROR = -1;
+MODULE INT LEFT_JUSTIFIED = 0;
+MODULE INT RIGHT_JUSTIFIED = 1;
+MODULE INT CENTER_JUSTIFIED = 2;
+MODULE INT PIXEL_MODE = 0;
+
+//Constants -> User defined constant values
+MODULE INT DEVICE_PER_PAGE = 25;
+MODULE INT DC_BASE_IODEVICE_AN = 600;
+MODULE INT DC_BASE_IOSERVER_AN = 650;
+MODULE INT DC_BASE_STATUS_AN = 700;
+MODULE INT DC_BASE_MODE_AN = 750;			//AR 130610
+//MODULE INT DC_BASE_CONTROL_AN = 750;		//AR 130610 - Appears to be unused
+MODULE INT DC_MODE_NORMAL = 0;				//AR 130610
+MODULE INT DC_MODE_DISABLED = 1;			//AR 130610 - Not used
+MODULE INT DC_MODE_MAINTENANCE = 2;			//AR 130610
+MODULE INT DC_MODE_OUTOFSERVICE = 4;		//AR 130610
+MODULE INT DC_SCREEN_UPDATE_RATE = 200;
+MODULE INT DC_NO_LOG = 0;
+MODULE INT DC_LOG = 1;
+MODULE INT DC_LOG_EVENT = 1;
+MODULE STRING DC_FILTER_IODEVICE_AN = "AN46";
+MODULE STRING DC_FILTER_IOSERVER_AN = "AN47";
+MODULE STRING DC_FILTER_STATUS_AN = "AN49";
+MODULE STRING DC_FILTER_MODE_AN = "AN9";		//AR 130610
+
+//Variables -> User defined global variables
+MODULE INT DC_MAIN_TASK_HANDLE;
+MODULE INT DC_ITEMS_PER_PAGE;
+MODULE INT DC_HIDE_SCROLLBAR;
+MODULE INT DC_REQUIRED_SECURITY_LEVEL;
+MODULE INT DC_IODEVICE_MAX_PIXEL;
+MODULE INT DC_IOSERVER_MAX_PIXEL;
+MODULE INT DC_STATUS_MAX_PIXEL;
+MODULE INT DC_MENU_FLAG;
+MODULE INT DC_DISABLE_ALL_FLAG;
+MODULE INT DC_ENABLE_ALL_FLAG;
+MODULE INT DC_NORMAL_ALL_FLAG;			//AR 130612
+MODULE INT DC_MAINTENANCE_ALL_FLAG;		//AR 130612
+MODULE INT DC_OUTOFSERVICE_ALL_FLAG;	//AR 130612
+MODULE INT DC_SELECTED_MENU_ITEM;
+MODULE INT DC_FILTER_ENABLED;
+MODULE INT DC_FILTER_TASK_HANDLE;
+MODULE INT DC_ScrollSpan;
+MODULE INT DC_ScrollIndex;
+MODULE STRING DC_DEVICE_SELECTED;
+MODULE STRING DC_FILTER_IODEVICE;
+MODULE STRING DC_FILTER_IOSERVER;
+MODULE STRING DC_FILTER_STATUS;
+MODULE STRING DC_FILTER_MODE;		//AR 130610
+
+//AR 130630
+//These are required for the alarm enable / disable functions
+//These variables to reside in the AlarmServer process
+MODULE INT mnAlmRecsMax = 255;		//Max number of alarm records per device (we can raise this if needed).
+MODULE INT mnAlmRecs[256];
+MODULE INT mnAlmRecCount;
+MODULE INT mbAlmSetEnableMutex;
+
+
+////////////////////////////////////////////////////////////////////////
+// EVENT FUNCTIONS                                             	      //
+// Description - These functions are used by the main event used to   //
+//				 update all the text on the device status screen only //
+////////////////////////////////////////////////////////////////////////
+
+//Description - Sets up essential settings for main screen
+//Caller 	  - "On Page Entry" event for the device control page
+//Args	      - iItemsPerPage     -> The maximum number of items you can
+//								     shown on a single page.
+//			    iSecurityLevel    -> User privledge level required to use controls
+//				iIODeviceMaxPixel -> Max pixels this column can display before truncation
+//				iIOServerMaxPixel -> Max pixels this column can display before truncation
+//				iStatusMaxPixel   -> Max pixels this column can display before truncation
+FUNCTION DC_Init_Screen(INT iItemsPerPage = 25 , INT iSecurityLevel = 8 , INT iIODeviceMaxPixel = 283 , INT iIOServerMaxPixel = 225 , INT iStatusMaxPixel = 240)
+	//Reset globals
+	
+	//Set the items per page
+	DC_ITEMS_PER_PAGE = iItemsPerPage;
+	DC_REQUIRED_SECURITY_LEVEL = iSecurityLevel;
+	DC_IODEVICE_MAX_PIXEL = iIODeviceMaxPixel;
+	DC_IOSERVER_MAX_PIXEL = iIOServerMaxPixel;
+	DC_STATUS_MAX_PIXEL = iStatusMaxPixel;
+
+	//Start task
+	DC_MAIN_TASK_HANDLE = TaskNew("DC_Update_Screen" , "" , 0);
+END //End function
+
+//Description - Clean-up after exiting page for main screen
+//Caller 	  - "On Page Exit" event for the General_Comments page
+//Args	      - NONE
+FUNCTION DC_Uninit_Screen()
+	//Terminate task
+	TaskKill(DC_MAIN_TASK_HANDLE);
+END //End function
+
+//Description - Updates all text at specific AN on the main screen
+//Caller 	  - DC_Init_Screen() as TaskNew
+//Args	      - NONE
+FUNCTION DC_Update_Screen()
+	INT iLoop;
+	INT hEquip;
+	INT iEquipRecord;
+	INT iSkipCount;
+	INT hScreenFont = DspFontHnd("DC_Font");
+	INT iSliderSpan = TagGetProperty("DC_ScrollIndex" , "RangeLow" , NON_BLOCKING_MODE);
+	INT hRPC;
+	INT iNumberOfRec;
+	STRING sIODevice;
+	STRING sIOServer;
+	STRING sStatus;
+	STRING sMode;		//AR 130610
+	
+	//Check user login status (Required for first time screen loads)
+	IF (GetPriv(1 , 0) = 0) THEN
+		//Login to system account if not logged in
+		//Required to view comments from DBF
+		ES_LoginSystem(0);
+	END
+
+	//Open RPC message session to alarm server
+	hRPC = MsgOpen("Alarm" , 0 , 0);
+	
+	//Open EQUIP.DBF session
+	hEquip = StrToInt(MsgRPC(hRPC , "EquipBrowseOpen" , "" , 0)); 
+	
+	//Loop forever (Ends "On Page Exit" - See GC_Uninit_Screen())
+	WHILE(1) DO
+		//Check user login status (Required while screen shown)
+		IF (GetPriv(1 , 0) = 0) THEN
+			//Login to system account if not logged in
+			//Required to view comments from DBF
+			ES_LoginSystem(0);
+		END
+
+		/////////////////////////////////////
+		//Check for enable all devices flag//
+		/////////////////////////////////////
+		IF (DC_ENABLE_ALL_FLAG = 1) THEN
+			//Reset flag
+			DC_ENABLE_ALL_FLAG = 0;
+			
+			//Get first record
+			iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseFirst" , IntToStr(hEquip) , 0));
+		
+			//Loop through all IODevice entries
+			WHILE (iEquipRecord <> EQUIP_EOF) DO
+				//Retrieve data
+				sIODevice = MsgRPC(hRPC , "EquipBrowseGetField" , IntToStr(hEquip) + ",^"IODEVICE^"" , 0);
+				sIOServer = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(IOSERVER_MODE) , 0);
+				sStatus = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(STATUS_MODE) , 0);
+				sMode = MsgRPC(hRPC,"DC_GetDeviceMode", "^"" + sIODevice + "^"", 0);
+				
+				//If record not filtered
+				IF (NOT DC_Filter_Record(sIODevice , sIOServer , sStatus, sMode)) AND sIODevice <> "" THEN
+					//Enable device
+					DC_SetDeviceStatus(sIODevice , ENABLE_DEVICE, DC_LOG);
+				END
+						
+				//Get next equipment record
+				iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseNext" , IntToStr(hEquip) , 0));
+				
+				//Wait
+				SleepMS(100);
+			END
+		END //End if
+		
+		//////////////////////////////////////
+		//Check for disable all devices flag//
+		//////////////////////////////////////
+		IF (DC_DISABLE_ALL_FLAG = 1) THEN
+			//Reset flag
+			DC_DISABLE_ALL_FLAG = 0;
+			
+			//Get first record
+			iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseFirst" , IntToStr(hEquip) , 0));
+		
+			//Loop through all IODevice entries
+			WHILE (iEquipRecord <> EQUIP_EOF) DO
+				//Retrieve data
+				sIODevice = MsgRPC(hRPC , "EquipBrowseGetField" , IntToStr(hEquip) + ",^"IODEVICE^"" , 0);
+				sIOServer = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(IOSERVER_MODE) , 0);
+				sStatus = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(STATUS_MODE) , 0);
+				sMode = MsgRPC(hRPC,"DC_GetDeviceMode", "^"" + sIODevice + "^"", 0);
+				
+				//If record not filtered
+				IF (NOT DC_Filter_Record(sIODevice , sIOServer , sStatus, sMode)) AND sIODevice <> "" THEN
+					//Disable device
+					DC_SetDeviceStatus(sIODevice , DISABLE_DEVICE, DC_LOG);
+				END
+		
+				//Get next equipment record
+				iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseNext" , IntToStr(hEquip) , 0));
+				
+				//Wait
+				SleepMS(100);
+			END
+		END //End if
+
+
+		//////////////////////////////////////
+		//Check for Normal all devices flag//
+		//////////////////////////////////////
+		IF (DC_NORMAL_ALL_FLAG = 1) THEN
+			//Reset flag
+			DC_NORMAL_ALL_FLAG = 0;
+			
+			//Get first record
+			iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseFirst" , IntToStr(hEquip) , 0));
+		
+			//Loop through all IODevice entries
+			WHILE (iEquipRecord <> EQUIP_EOF) DO
+				//Retrieve data
+				sIODevice = MsgRPC(hRPC , "EquipBrowseGetField" , IntToStr(hEquip) + ",^"IODEVICE^"" , 0);
+				sIOServer = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(IOSERVER_MODE) , 0);
+				sStatus = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(STATUS_MODE) , 0);
+				sMode = MsgRPC(hRPC,"DC_GetDeviceMode", "^"" + sIODevice + "^"", 0);
+				
+				//If record not filtered
+				IF (NOT DC_Filter_Record(sIODevice , sIOServer , sStatus, sMode)) AND sIODevice <> "" THEN
+					//Device mode to Normal
+					//Enable device		
+					DC_SetDeviceStatus(sIODevice , ENABLE_DEVICE, DC_LOG);
+					// ** Need to posibly revise logic to check comm status before enabling alarms
+					SleepMS(4 * DC_SCREEN_UPDATE_RATE);
+					//Device mode to Normal
+					DC_SetDeviceMode(sIODevice, DC_MODE_NORMAL, DC_LOG);
+				END
+		
+				//Get next equipment record
+				iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseNext" , IntToStr(hEquip) , 0));
+				
+				//Wait
+				SleepMS(100);
+			END
+		END //End if
+
+//AR 130612	
+		//////////////////////////////////////
+		//Check for Maintenance all devices flag//
+		//////////////////////////////////////
+		IF (DC_MAINTENANCE_ALL_FLAG = 1) THEN
+			//Reset flag
+			DC_MAINTENANCE_ALL_FLAG = 0;
+			
+			//Get first record
+			iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseFirst" , IntToStr(hEquip) , 0));
+		
+			//Loop through all IODevice entries
+			WHILE (iEquipRecord <> EQUIP_EOF) DO
+				//Retrieve data
+				sIODevice = MsgRPC(hRPC , "EquipBrowseGetField" , IntToStr(hEquip) + ",^"IODEVICE^"" , 0);
+				sIOServer = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(IOSERVER_MODE) , 0);
+				sStatus = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(STATUS_MODE) , 0);
+				sMode = MsgRPC(hRPC,"DC_GetDeviceMode", "^"" + sIODevice + "^"", 0);
+				
+				//If record not filtered
+				IF (NOT DC_Filter_Record(sIODevice , sIOServer , sStatus, sMode)) AND sIODevice <> "" THEN
+					//Device mode to Maintenance
+					DC_SetDeviceMode(sIODevice, DC_MODE_MAINTENANCE, DC_LOG);
+				END
+		
+				//Get next equipment record
+				iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseNext" , IntToStr(hEquip) , 0));
+				
+				//Wait
+				SleepMS(100);
+			END
+		END //End if
+
+	
+		//////////////////////////////////////
+		//Check for Out of Service all devices flag//
+		//////////////////////////////////////
+		IF (DC_OUTOFSERVICE_ALL_FLAG = 1) THEN
+			//Reset flag
+			DC_OUTOFSERVICE_ALL_FLAG = 0;
+			
+			//Get first record
+			iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseFirst" , IntToStr(hEquip) , 0));
+		
+			//Loop through all IODevice entries
+			WHILE (iEquipRecord <> EQUIP_EOF) DO
+				//Retrieve data
+				sIODevice = MsgRPC(hRPC , "EquipBrowseGetField" , IntToStr(hEquip) + ",^"IODEVICE^"" , 0);
+				sIOServer = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(IOSERVER_MODE) , 0);
+				sStatus = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(STATUS_MODE) , 0);
+				sMode = MsgRPC(hRPC,"DC_GetDeviceMode", "^"" + sIODevice + "^"", 0);
+				
+				//If record not filtered
+				IF (NOT DC_Filter_Record(sIODevice , sIOServer , sStatus, sMode)) AND sIODevice <> "" THEN
+					//Device mode to Out of Service
+					DC_SetDeviceMode(sIODevice, DC_MODE_OUTOFSERVICE, DC_LOG);
+					SleepMS(DC_SCREEN_UPDATE_RATE);
+					//Disable device
+					DC_SetDeviceStatus(sIODevice , DISABLE_DEVICE, DC_LOG);
+				END
+		
+				//Get next equipment record
+				iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseNext" , IntToStr(hEquip) , 0));
+				
+				//Wait
+				SleepMS(100);
+			END
+		END //End if
+
+
+		///////////////////////////////////////
+		//Check for toggle device status flag//
+		///////////////////////////////////////
+		IF (DC_MENU_FLAG = 1) THEN
+			//Reset flag
+			DC_MENU_FLAG = 0;
+			
+			//AR 130610 = Replaced with SELECT CASE below
+			//IF (DC_SELECTED_MENU_ITEM = 1) THEN
+			//	//Enable device
+			//	DC_SetDeviceStatus(DC_DEVICE_SELECTED , ENABLE_DEVICE, DC_LOG);
+			//ELSE IF (DC_SELECTED_MENU_ITEM = 2) THEN
+			//	//Disable device
+			//	DC_SetDeviceStatus(DC_DEVICE_SELECTED , DISABLE_DEVICE, DC_LOG);
+			//END END
+			
+			//AR 130610
+			SELECT CASE DC_SELECTED_MENU_ITEM
+				CASE 1
+					//Enable device		
+					DC_SetDeviceStatus(DC_DEVICE_SELECTED , ENABLE_DEVICE, DC_LOG, DC_LOG_EVENT);
+				CASE 2
+					//Disable device
+					DC_SetDeviceStatus(DC_DEVICE_SELECTED , DISABLE_DEVICE, DC_LOG, DC_LOG_EVENT);
+				CASE 3
+					//Device mode to Normal
+					//Enable device		
+					DC_SetDeviceStatus(DC_DEVICE_SELECTED , ENABLE_DEVICE, DC_LOG);
+					// ** Need to posibly revise logic to check comm status before enabling alarms
+					SleepMS(4 * DC_SCREEN_UPDATE_RATE);
+					//Device mode to Normal
+					DC_SetDeviceMode(DC_DEVICE_SELECTED, DC_MODE_NORMAL, DC_LOG, DC_LOG_EVENT);
+				CASE 4
+					//Device mode to Maintenance
+					DC_SetDeviceMode(DC_DEVICE_SELECTED, DC_MODE_MAINTENANCE, DC_LOG, DC_LOG_EVENT);
+				CASE 5
+					//Device mode to Out of Service
+					DC_SetDeviceMode(DC_DEVICE_SELECTED, DC_MODE_OUTOFSERVICE, DC_LOG, DC_LOG_EVENT);
+					SleepMS(DC_SCREEN_UPDATE_RATE);
+					//Disable device
+					DC_SetDeviceStatus(DC_DEVICE_SELECTED , DISABLE_DEVICE, DC_LOG);
+			END SELECT
+			
+			//Reset variables
+			DC_DEVICE_SELECTED = "";
+			DC_SELECTED_MENU_ITEM = 0;
+		END //End if
+		
+		/////////////////////////////////
+		//Calibrate Display (Scrollbar)//
+		/////////////////////////////////
+		//Count number of devices being displayed
+		//Reset count
+		iNumberOfRec = 0;
+		
+		//Get first record
+		iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseFirst" , IntToStr(hEquip) , 0));
+
+		//Loop through all IODevice entries
+		WHILE (iEquipRecord <> EQUIP_EOF) DO
+			//Retrieve data
+			sIODevice = MsgRPC(hRPC , "EquipBrowseGetField" , IntToStr(hEquip) + ",^"IODEVICE^"" , 0);
+			sIOServer = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(IOSERVER_MODE) , 0);
+			sStatus = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(STATUS_MODE) , 0);
+			sMode = MsgRPC(hRPC,"DC_GetDeviceMode", "^"" + sIODevice + "^"", 0);
+						
+			//If record not filtered
+			IF (NOT DC_Filter_Record(sIODevice , sIOServer , sStatus, sMode)) AND sIODevice <> "" THEN
+				//Increment device count
+				iNumberOfRec = iNumberOfRec + 1;
+			END //End if
+			
+			//Get next equipment record
+			iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseNext" , IntToStr(hEquip) , 0));
+		END
+		
+		//One page only
+		IF (iNumberOfRec <= DC_ITEMS_PER_PAGE) THEN
+			//Outside possible range (Force single page)
+			DC_ScrollSpan = iSliderSpan * 2;
+			
+			//Hide scrollbar
+			DC_HIDE_SCROLLBAR = 1;
+		//More than one page
+		ELSE
+			//Calculate slider span per device
+			DC_ScrollSpan = iSliderSpan / (iNumberOfRec - DC_ITEMS_PER_PAGE);
+			
+			//Show scrollbar
+			DC_HIDE_SCROLLBAR = 0;
+		END //End if
+	
+		//Get first record
+		iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseFirst" , IntToStr(hEquip) , 0));
+
+		//Calculate # comment records to skip
+		IF (DC_ScrollSpan = 0) THEN
+			iSkipCount = 0;
+		ELSE
+			iSkipCount = (DC_ScrollIndex / DC_ScrollSpan);
+		END //End if
+
+		//Skip over records not being shown
+		FOR iLoop = 1 TO iSkipCount DO
+			//Get next equipment record
+			//As long as not on last record
+			IF (iEquipRecord <> EQUIP_EOF) THEN
+				//Retrieve data
+				sIODevice = MsgRPC(hRPC , "EquipBrowseGetField" , IntToStr(hEquip) + ",^"IODEVICE^"" , 0);
+				sIOServer = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(IOSERVER_MODE) , 0);
+				sStatus = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(STATUS_MODE) , 0);
+				sMode = MsgRPC(hRPC,"DC_GetDeviceMode", "^"" + sIODevice + "^"", 0);
+								
+				//If record filtered
+				IF (DC_Filter_Record(sIODevice , sIOServer , sStatus, sMode)) AND sIODevice <> "" THEN
+					//Force loop to read another record
+					//This record isn't shown on screen
+					iLoop = iLoop - 1;	
+				END //End if
+
+				
+				//Get next equipment record
+				iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseNext" , IntToStr(hEquip) , 0));
+			END //End if
+		END //End for
+	
+
+		////////////////////////////////////////////
+		//Display text at AN and state information//
+		////////////////////////////////////////////
+		FOR iLoop = 0 TO (DC_ITEMS_PER_PAGE - 1) DO
+			IF (iEquipRecord <> EQUIP_EOF) THEN
+				//Retrieve data
+				sIODevice = MsgRPC(hRPC , "EquipBrowseGetField" , IntToStr(hEquip) + ",^"IODEVICE^"" , 0);
+				sIOServer = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(IOSERVER_MODE) , 0);
+				sStatus = MsgRPC(hRPC , "IODeviceInfo" ,  "^"" + sIODevice + "^"," + IntToStr(STATUS_MODE) , 0);
+				sMode = MsgRPC(hRPC,"DC_GetDeviceMode", "^"" + sIODevice + "^"", 0);
+				
+				//If record not filtered
+				IF (NOT DC_Filter_Record(sIODevice , sIOServer , sStatus, sMode)) AND sIODevice <> "" THEN
+					//Set the display value for the device name column
+					DspText(DC_BASE_IODEVICE_AN + iLoop , hScreenFont , sIODevice , DC_IODEVICE_MAX_PIXEL , LEFT_JUSTIFIED , PIXEL_MODE);
+					DspSetTip(DC_BASE_IODEVICE_AN + iLoop ,"I/O Device : " + sIODevice);
+					
+					//Set the display value for the IOServer column
+					DspText(DC_BASE_IOSERVER_AN + iLoop , hScreenFont , sIOServer , DC_IOSERVER_MAX_PIXEL , CENTER_JUSTIFIED , PIXEL_MODE);
+					DspSetTip(DC_BASE_IOSERVER_AN + iLoop , "I/O Server : " + sIOServer);
+					
+					//Set the display value for the status column
+					SELECT CASE sStatus
+						CASE DEVICE_RUNNING_PRIMARY
+							DspText(DC_BASE_STATUS_AN + iLoop , hScreenFont , "Running Primary" , DC_STATUS_MAX_PIXEL , CENTER_JUSTIFIED , PIXEL_MODE);
+							DspSetTip(DC_BASE_STATUS_AN + iLoop , "Device is Communicating with Primary IOServer");
+						CASE DEVICE_RUNNING_STANDBY
+							DspText(DC_BASE_STATUS_AN + iLoop , hScreenFont , "Running Standby" , DC_STATUS_MAX_PIXEL , CENTER_JUSTIFIED , PIXEL_MODE);
+							DspSetTip(DC_BASE_STATUS_AN + iLoop , "Device is Communicating with Standby IOServer");
+						CASE DEVICE_STARTING
+							DspText(DC_BASE_STATUS_AN + iLoop , hScreenFont , "Starting" , DC_STATUS_MAX_PIXEL , CENTER_JUSTIFIED , PIXEL_MODE);
+							DspSetTip(DC_BASE_STATUS_AN + iLoop , "Device is Starting Up");
+						CASE DEVICE_STOPPING
+							DspText(DC_BASE_STATUS_AN + iLoop , hScreenFont , "Stopping" , DC_STATUS_MAX_PIXEL , CENTER_JUSTIFIED , PIXEL_MODE);
+							DspSetTip(DC_BASE_STATUS_AN + iLoop , "Device is Shutting Down");
+						CASE DEVICE_OFFLINE
+							DspText(DC_BASE_STATUS_AN + iLoop , hScreenFont , "Offline" , DC_STATUS_MAX_PIXEL , CENTER_JUSTIFIED , PIXEL_MODE);
+							DspSetTip(DC_BASE_STATUS_AN + iLoop , "Device is Not Communicating with Any IOServer");
+						CASE DEVICE_DISABLED
+							DspText(DC_BASE_STATUS_AN + iLoop , hScreenFont , "Disabled" , DC_STATUS_MAX_PIXEL , CENTER_JUSTIFIED , PIXEL_MODE);
+							DspSetTip(DC_BASE_STATUS_AN + iLoop , "Device has Been Disabled by User");
+						CASE DEVICE_STANDBYWRITE
+							DspText(DC_BASE_STATUS_AN + iLoop , hScreenFont , "Standby Write" , DC_STATUS_MAX_PIXEL , CENTER_JUSTIFIED , PIXEL_MODE);
+							DspSetTip(DC_BASE_STATUS_AN + iLoop , "Device is in a Standby Write Mode with Standby IOServer");
+						CASE ELSE //Device does not exist
+							//If not blank element
+							IF (sIODevice <> "") THEN
+								DspText(DC_BASE_STATUS_AN + iLoop , hScreenFont , "Unknown : " + IntToStr(sStatus));
+								DspSetTip(DC_BASE_STATUS_AN + iLoop , "Device is in an Unknown State.");
+							ELSE
+								DspText(DC_BASE_STATUS_AN + iLoop , hScreenFont , "");
+							END
+					END SELECT
+					
+					//AR 130610 - Added below Select Case for the Modes
+					SELECT CASE StrToInt(sMode)
+						CASE DC_MODE_NORMAL
+							DspText(DC_BASE_MODE_AN + iLoop , hScreenFont , "In Service" , DC_STATUS_MAX_PIXEL , CENTER_JUSTIFIED , PIXEL_MODE);
+							DspSetTip(DC_BASE_MODE_AN + iLoop , "Device mode is Normal");
+						CASE DC_MODE_DISABLED
+							DspText(DC_BASE_MODE_AN + iLoop , hScreenFont , "Disabled" , DC_STATUS_MAX_PIXEL , CENTER_JUSTIFIED , PIXEL_MODE);
+							DspSetTip(DC_BASE_MODE_AN + iLoop , "Device is Disabled");
+						CASE DC_MODE_MAINTENANCE
+							DspText(DC_BASE_MODE_AN + iLoop , hScreenFont , "Maintenance" , DC_STATUS_MAX_PIXEL , CENTER_JUSTIFIED , PIXEL_MODE);
+							DspSetTip(DC_BASE_MODE_AN + iLoop , "Device is in Maintenance Mode");
+						CASE DC_MODE_OUTOFSERVICE
+							DspText(DC_BASE_MODE_AN + iLoop , hScreenFont , "Out of Service" , DC_STATUS_MAX_PIXEL , CENTER_JUSTIFIED , PIXEL_MODE);
+							DspSetTip(DC_BASE_MODE_AN + iLoop , "Device is Out of Service");
+						CASE ELSE //Device does not exist
+							//If not blank element
+							IF (sIODevice <> "") THEN
+								DspText(DC_BASE_MODE_AN + iLoop , hScreenFont , "Unknown");
+								DspSetTip(DC_BASE_MODE_AN + iLoop , "Device mode is Unknown");
+							ELSE
+								DspText(DC_BASE_MODE_AN + iLoop , hScreenFont , "");
+							END
+					END SELECT
+					
+				ELSE
+					//Force loop to read another record
+					//This record isn't shown on screen
+					iLoop = iLoop - 1;	
+				END //End if
+			ELSE
+				//No valid comment for row. NULL row value
+				DspText(DC_BASE_IODEVICE_AN + iLoop , hScreenFont , "" , -1 , 2 , 0);
+				DspSetTip(DC_BASE_IODEVICE_AN + iLoop , "");
+				DspText(DC_BASE_IOSERVER_AN + iLoop , hScreenFont , "" , -1 , 2 , 0);
+				DspSetTip(DC_BASE_IOSERVER_AN + iLoop , "");
+				DspText(DC_BASE_STATUS_AN + iLoop , hScreenFont , "" , -1 , 2 , 0);
+				DspSetTip(DC_BASE_STATUS_AN + iLoop , "");
+				DspText(DC_BASE_MODE_AN + iLoop , hScreenFont , "" , -1 , 2 , 0);	//AR 130610
+				DspSetTip(DC_BASE_MODE_AN + iLoop , "");	//AR 130610
+			END //End if	
+			
+			//Get next equipment record
+			iEquipRecord = StrToInt(MsgRPC(hRPC , "EquipBrowseNext" , IntToStr(hEquip) , 0));
+		END //End for
+		
+		//Wait (Free CPU)
+		SleepMS(DC_SCREEN_UPDATE_RATE);
+		
+	END //End while
+END //End function
+
+//Description - Indicates whether a record should be filtered
+//Caller 	  - DC_Update_Screen() by Function Call
+//Args	      - NONE
+INT FUNCTION DC_Filter_Record(STRING sIODevice , STRING sIOServer , STRING sStatus, STRING sMode)
+	INT iNextCommaIndex;
+	INT bFilterState;
+	STRING sNextFilterText;
+	STRING sRemainingFilterText;
+	
+	//Reset filter state (Not filtered)
+	bFilterState = 0;
+
+	//Check if filter is enabled
+	IF (DC_FILTER_ENABLED = 1) THEN
+		//Filter based on IODevice
+		//Only filter if strings are specified
+		IF (DC_FILTER_IODEVICE <> "") THEN
+			//Set remaining filter text
+			sRemainingFilterText = DC_FILTER_IODEVICE;
+		
+			//Continue to filter while strings are remaining
+			WHILE (sRemainingFilterText <> "") DO
+				//Find where next comma is located
+				iNextCommaIndex = StrSearch(0 , sRemainingFilterText , ",");
+				
+				//If a comma was found
+				IF (iNextCommaIndex <> -1) THEN
+					//Set the next filter text
+					sNextFilterText = StrLeft(sRemainingFilterText , iNextCommaIndex);
+				
+					//Remove extracted text from string
+					sRemainingFilterText = StrMid(sRemainingFilterText , (iNextCommaIndex + 1) , StrLength(sRemainingFilterText) - (iNextCommaIndex + 1));
+				//No comma found
+				ELSE
+					//Set remaining string
+					sNextFilterText = sRemainingFilterText;
+					
+					//Reset global string
+					sRemainingFilterText = "";
+				END //End if
+				
+				//If string is filtered
+				IF (StrSearch(0 , sIODevice , sNextFilterText) = -1) THEN
+					//On last string
+					IF (sRemainingFilterText = "") THEN
+						bFilterState = bFilterState OR 1;
+					END //End if
+				//Found string match (Not filtered)
+				ELSE
+					//Force loop exit
+					sRemainingFilterText = "";
+				END //End if
+			END //While if
+		END //End if
+
+		//Filter based on IOServer
+		//Only filter if strings are specified
+		IF (DC_FILTER_IOSERVER <> "") THEN
+			//Set remaining filter text
+			sRemainingFilterText = DC_FILTER_IOSERVER;
+		
+			//Continue to filter while strings are remaining
+			WHILE (sRemainingFilterText <> "") DO
+				//Find where next comma is located
+				iNextCommaIndex = StrSearch(0 , sRemainingFilterText , ",");
+				
+				//If a comma was found
+				IF (iNextCommaIndex <> -1) THEN
+					//Set the next filter text
+					sNextFilterText = StrLeft(sRemainingFilterText , iNextCommaIndex);
+				
+					//Remove extracted text from string
+					sRemainingFilterText = StrMid(sRemainingFilterText , (iNextCommaIndex + 1) , StrLength(sRemainingFilterText) - (iNextCommaIndex + 1));
+				//No comma found
+				ELSE
+					//Set remaining string
+					sNextFilterText = sRemainingFilterText;
+					
+					//Reset global string
+					sRemainingFilterText = "";
+				END //End if
+				
+				//If string is filtered
+				IF (StrSearch(0 , sIOServer , sNextFilterText) = -1) THEN
+					//On last string
+					IF (sRemainingFilterText = "") THEN
+						bFilterState = bFilterState OR 1;
+					END //End if
+				//Found string match (Not filtered)
+				ELSE
+					//Force loop exit
+					sRemainingFilterText = "";
+				END //End if
+			END //While if
+		END //End if
+		
+		//Filter based on Status
+		//Set the display value for the status column
+		SELECT CASE sStatus
+			CASE DEVICE_RUNNING_PRIMARY
+				sStatus = "Running Primary";
+			CASE DEVICE_RUNNING_STANDBY
+				sStatus = "Running Standby";
+			CASE DEVICE_STARTING
+				sStatus = "Starting";
+			CASE DEVICE_STOPPING
+				sStatus = "Stopping";
+			CASE DEVICE_OFFLINE
+				sStatus = "Offline";
+			CASE DEVICE_DISABLED
+				sStatus = "Disabled";
+			CASE DEVICE_STANDBYWRITE
+				sStatus = "Standby Write";
+			CASE ELSE //Device does not exist
+				//If not blank element
+				IF (sIODevice <> "") THEN
+					sStatus = "Unknown : " + IntToStr(sStatus);
+				ELSE
+					sStatus = "";
+				END
+		END SELECT
+		
+		//Filter based on Status
+		//Only filter if strings are specified
+		IF (DC_FILTER_STATUS <> "") THEN
+			//Set remaining filter text
+			sRemainingFilterText = DC_FILTER_STATUS;
+		
+			//Continue to filter while strings are remaining
+			WHILE (sRemainingFilterText <> "") DO
+				//Find where next comma is located
+				iNextCommaIndex = StrSearch(0 , sRemainingFilterText , ",");
+				
+				//If a comma was found
+				IF (iNextCommaIndex <> -1) THEN
+					//Set the next filter text
+					sNextFilterText = StrLeft(sRemainingFilterText , iNextCommaIndex);
+				
+					//Remove extracted text from string
+					sRemainingFilterText = StrMid(sRemainingFilterText , (iNextCommaIndex + 1) , StrLength(sRemainingFilterText) - (iNextCommaIndex + 1));
+				//No comma found
+				ELSE
+					//Set remaining string
+					sNextFilterText = sRemainingFilterText;
+					
+					//Reset global string
+					sRemainingFilterText = "";
+				END //End if
+				
+				//If string is filtered
+				IF (StrSearch(0 , sStatus , sNextFilterText) = -1) THEN
+					//On last string
+					IF (sRemainingFilterText = "") THEN
+						bFilterState = bFilterState OR 1;
+					END //End if
+				//Found string match (Not filtered)
+				ELSE
+					//Force loop exit
+					sRemainingFilterText = "";
+				END //End if
+			END //While if
+		END //End if
+
+//AR 130613
+		//Filter based on Mode
+		//Set the display value for the Mode column
+		SELECT CASE StrToInt(sMode)
+			CASE DC_MODE_NORMAL
+				sMode = "In Service";
+			CASE DC_MODE_DISABLED
+				sMode = "Disabled";
+			CASE DC_MODE_MAINTENANCE
+				sMode = "Maintenance";
+			CASE DC_MODE_OUTOFSERVICE
+				sMode = "Out of Service";
+			CASE ELSE //Device does not exist
+				//If not blank element
+				IF (sIODevice <> "") THEN
+					sMode = "Unknown";
+				ELSE
+					sMode = "";
+				END
+		END SELECT
+		
+		//Filter based on Mode
+		//Only filter if strings are specified
+		IF (DC_FILTER_MODE <> "") THEN
+			//Set remaining filter text
+			sRemainingFilterText = DC_FILTER_MODE;
+		
+			//Continue to filter while strings are remaining
+			WHILE (sRemainingFilterText <> "") DO
+				//Find where next comma is located
+				iNextCommaIndex = StrSearch(0 , sRemainingFilterText , ",");
+				
+				//If a comma was found
+				IF (iNextCommaIndex <> -1) THEN
+					//Set the next filter text
+					sNextFilterText = StrLeft(sRemainingFilterText , iNextCommaIndex);
+				
+					//Remove extracted text from string
+					sRemainingFilterText = StrMid(sRemainingFilterText , (iNextCommaIndex + 1) , StrLength(sRemainingFilterText) - (iNextCommaIndex + 1));
+				//No comma found
+				ELSE
+					//Set remaining string
+					sNextFilterText = sRemainingFilterText;
+					
+					//Reset global string
+					sRemainingFilterText = "";
+				END //End if
+				
+				//If string is filtered
+				IF (StrSearch(0 , sMode , sNextFilterText) = -1) THEN
+					//On last string
+					IF (sRemainingFilterText = "") THEN
+						bFilterState = bFilterState OR 1;
+					END //End if
+				//Found string match (Not filtered)
+				ELSE
+					//Force loop exit
+					sRemainingFilterText = "";
+				END //End if
+			END //While if
+		END //End if
+		
+		//Return filter state
+		//0 - Not filtered
+		//1 - Filtered
+		RETURN bFilterState;																							
+	ELSE
+		//Filter not enabled
+		RETURN 0;
+	END //End if
+END //End function
+
+//Description - Sends a Remote Procedure call to the IOServer of an IODevice
+//				to enable or disable an IODevice.
+//Caller	  - ToggleIODeviceState(STRING sIODevice)
+//				EnableAllIODevice()
+//				DisableAllIODevice()
+//				SyncDisabledDevicesToScreen()
+//Args		  - sIODevice -> The IODevice to enable/disable
+//				iDisable  -> Mode selector where 1 is disable and 0 is enable
+//				iHistMode -> Mode selector where 1 adds disabled entries to DevCache.DBF
+//							 and all other values will not add entries to DevCache.DBF
+//				sCluster  -> Cluster IODevice is using
+FUNCTION DC_SetDeviceStatus(STRING sIODevice, INT bDisable, INT bHistMode, INT bLogEvent = 0, STRING sCluster = "")
+	INT hRPC;
+	STRING sIOServer = DC_DeviceGetIOServer(sIODevice, sCluster);
+	STRING sEventMsg;
+	IF sIOServer = "" THEN
+		Message("SetDeviceStatus", "Unable to obtain IOServer name.", 48);
+		RETURN
+	END
+	
+	//Open message session with IOServer IODevice is running on
+	hRPC = MsgOpen(sIOServer , CLIENT_SIDE_MODE , 0);
+
+	//Only execute if the device is disabled for enable mode or not disabled for disable mode
+	IF ((IODeviceInfo(sIODevice , STATUS_MODE) = DEVICE_DISABLED AND bDisable <> 1) OR (IODeviceInfo(sIODevice , STATUS_MODE) <> DEVICE_DISABLED AND bDisable = 1)) THEN
+		//Send a remote procedure call to the IOServer to run the IODeviceControl function
+		MsgRPC(hRPC , "IODeviceControl" , "^"" + sIODevice + "^"," + IntToStr(CONTROL_MODE) + "," + IntToStr(bDisable) + ",^"" + sCluster + "^",^"" + sIOServer + "^"" , BLOCKING_MODE);
+
+		IF (bHistMode = DC_LOG) THEN
+			//Send a remote procedure call to the IOServe to edit the DisDev.DBF
+			MsgRPC(hRPC , "DC_UpdateDBF" , "^"" + sIODevice + "^"," + IntToStr(bDisable) , BLOCKING_MODE);
+		END
+
+		IF bLogEvent THEN
+			IF bDisable THEN
+				sEventMsg = "HMI Action - Disable I/O Device " + sIODevice;
+			ELSE
+				sEventMsg = "HMI Action - Enable I/O Device " + sIODevice;
+			END
+
+			PLSAlmDspEventAdd(sEventMsg);
+		END
+	END
+	
+	//Close message session
+	MsgClose(sIOServer , hRPC);
+END
+
+//Description - Returns IOServer name the IODevice is using
+//Args		  - sIODevice -> The IODevice name
+//Returns	  - IOServer name or "" if error
+STRING
+FUNCTION DC_DeviceGetIOServer(STRING sIODevice, STRING sCluster = "")
+    INT hRPC;			
+	STRING sIOServer;
+	
+    hRPC = MsgOpen("Alarm", CLIENT_SIDE_MODE, 0, sCluster);		//Use Alarm server process, since this seems to work from both thick and web clients
+
+    IF hRPC <> ERROR THEN
+		//IOServer IODevice is running on (17)
+		sIOServer = MsgRPC(hRPC , "IODeviceInfo" , "^"" + sIODevice + "^"," + IntToStr(IOSERVER_MODE) + ",^"" + sCluster + "^"" , 0);
+	  	IF sIOServer = "" THEN
+			//Try primary configured IOServer (16)
+			sIOServer = MsgRPC(hRPC , "IODeviceInfo" , "^"" + sIODevice + "^"," + IntToStr(PIOSERVER_MODE) + ",^"" + sCluster + "^"" , 0);
+	 	END  
+	  	IF sIOServer = "" THEN
+	  		//Try configured IOServer name (12)
+			sIOServer = MsgRPC(hRPC , "IODeviceInfo" , "^"" + sIODevice + "^"," + IntToStr(CFGIOSERVER_MODE) + ",^"" + sCluster + "^"" , 0);
+	 	END
+	END 	
+
+ 	//If still no IOServer, then try obtaining it from the I/O Device database (Units.dbf).
+ 	IF sIOServer = "" THEN
+		sIOServer = MsgRPC(hRPC , "DC_DeviceGetIOServerFromDBF" , "^"" + sIODevice + "^"" , 0);
+	END
+	
+ 	MsgClose("Alarm", hRPC);
+ 	RETURN sIOServer;  
+END
+ 	
+ 	
+//Description - Returns IOServer name (Primary) the IODevice is using from from the I/O Server database (Units.DBF)
+//Args		  - sIODevice -> The IODevice name
+//Returns	  - IOServer name or "" if error
+//Note		  - This function should be run from Alarm server process (so that it works from both thick and web clients)
+STRING
+FUNCTION DC_DeviceGetIOServerFromDBF(STRING sIODevice)
+	INT hDev;
+	INT bIODevValid;
+	STRING sIODevMode, sIOServer;
+ 
+ 	hDev = DevOpen("UnitsDBF", 0);
+
+ 	IF hDev <> ERROR THEN
+ 		DevFirst(hDev);
+ 		IF DevFind(hDev, sIODevice, "NAME") = 0 THEN					//IODevice found (first instance)
+ 			sIODevMode = DevGetField(hDev, "MODE");
+ 			IF sIODevMode = "Primary" OR sIODevMode = "" THEN			//Is it Primary?
+ 				bIODevValid = 1;
+ 			END
+ 		END
+ 		IF NOT bIODevValid THEN											//If not try finding next IODevice instance (redundant device)
+ 			DevNext(hDev);
+	 		IF DevFind(hDev, sIODevice, "NAME") = 0 THEN				//IODevice found
+	 			sIODevMode = DevGetField(hDev, "MODE");
+	 			IF sIODevMode = "Primary" OR sIODevMode = "" THEN		//Is it Primary?
+	 				bIODevValid = 1;
+	 			END
+	 		END
+ 		END
+ 		
+ 		IF bIODevValid THEN												//Obtain IOServer name (for primary device)
+ 			sIOServer = DevGetField(hDev, "SERVER");
+ 		END
+
+ 		DevClose(hDev, 2);
+ 	END
+ 	
+ 	RETURN sIOServer;
+END
+
+//Description - Adds/Removes entries from the DevCache.DBF, which
+//				is used to cache disabled devices and restore their
+//				state if PLSCADA is restarted.
+//Caller	  - RemoteControlIODevice(STRING sIODevice, INT iDisable, STRING sCluster)
+//Args		  - sIODevice -> The IODevice to Add/Remove from DevCache.DBF
+//				iMode	  -> The mode selector where 1 is Add to DBF and
+//							 0 is remove from DBF
+FUNCTION DC_UpdateDBF(STRING sIODevice , INT iMode)
+	INT hDev;
+	INT hDevRecord;
+	
+	//Open DevCache.DBF
+	hDev = DevOpen("DC_DBF" , SHARED_MODE);
+
+	//Add disabled device mode
+	IF (iMode = DISABLE_DEVICE) THEN
+		//Add blank record
+		DevAppend(hDev)
+
+		//Set record to disabled device
+		DevSetField(hDev , "IODEVICE" , sIODevice);
+	//Remove disabled device mode
+	ELSE
+		//Get first record
+		hDevRecord = DevFirst(hDev);
+		
+		//Loop through all disabled devices
+		WHILE (hDevRecord <> DBF_EOF) DO
+			//If device is found
+			IF (DevGetField(hDev , "IODEVICE") = sIODevice) THEN
+				//Remove it from DevCache.DBF
+				DevDelete(hDev);
+				
+				//Pack DevCache.DBF
+				DevControl(hDev , PACK_DBF, "");
+				
+				//Close DevCache.DBF
+				DevClose(hDev , 0);
+				
+				//Exit function
+				RETURN
+			ELSE
+				//Get next record
+				hDevRecord = DevNext(hDev);
+			END
+
+		END
+	END
+	
+	//Close DevCache.DBF
+	DevClose(hDev , 0);
+END
+
+//AR 130610
+//Description - Sends a Remote Procedure call to the AlarmServer to enable/disable alarms
+//Caller	  - ToggleIODeviceState(STRING sIODevice)
+//Args		  - sIODevice -> The IODevice to enable/disable alarms
+//				iMode     -> The mode of IO device:
+//							 0 is Normal
+//							 1 is Disabled (not currently used)
+//							 2 is for Maintenance mode
+//							 4 is for Out of Service mode
+//				iHistMode -> Mode selector where 1 adds disabled entries to DevMode.DBF
+//							 and all other values will not add entries to DevMode.DBF
+//				sCluster  -> Cluster IODevice is using
+FUNCTION DC_SetDeviceMode(STRING sIODevice, INT iMode, INT bHistMode, INT bLogEvent = 0, STRING sCluster = "")
+	INT hRPC;
+	INT bSetEnabled = NOT (iMode = DC_MODE_MAINTENANCE OR iMode = DC_MODE_OUTOFSERVICE);  
+	INT bIncludeAlmComms = (iMode = DC_MODE_OUTOFSERVICE OR iMode = DC_MODE_NORMAL);
+	STRING sEventMsg;
+		
+	//Enable / Disable alarms if mode other than 1 (Disabled - this is already being handled separately...for now)
+	IF iMode <> DC_MODE_DISABLED THEN
+		DC_Client_AlmSetEnable(sIODevice, bSetEnabled, bIncludeAlmComms, sCluster);
+	
+		IF (bHistMode = DC_LOG) THEN
+		    hRPC = MsgOpen("Alarm", 0, 0, sCluster);
+			MsgRPC(hRPC , "DC_UpdateModeDBF" , "^"" + sIODevice + "^"," + IntToStr(iMode) , BLOCKING_MODE);
+    		MsgClose("Alarm", hRPC);
+		END
+		
+		IF bLogEvent THEN
+			sEventMsg = "HMI Action - Place I/O Device " + sIODevice + " in ";
+			SELECT CASE iMode
+				CASE DC_MODE_NORMAL			sEventMsg = sEventMsg + "Normal";
+				//CASE DC_MODE_DISABLED		sEventMsg = sEventMsg + "Disabled";		//Not used
+				CASE DC_MODE_MAINTENANCE	sEventMsg = sEventMsg + "Maintenance";
+				CASE DC_MODE_OUTOFSERVICE	sEventMsg = sEventMsg + "Out of Service";
+			END SELECT	
+			sEventMsg = sEventMsg + " Mode";
+			
+			PLSAlmDspEventAdd(sEventMsg);
+		END
+	END
+END
+
+//AR 130610
+//Description - Retrieves device mode, if present in DevMode.dbf.  If not, returns 0 (Normal).
+//Caller	  - Display functions.
+//Args		  - sIODevice -> The IODevice to retrieve data from DevMode.DBF
+//Returns     - sMode     -> The mode of IO device:
+//							 0 is Normal
+//							 1 is Disabled (not currently used)
+//							 2 is for Maintenance mode
+//							 4 is for Out of Service mode
+//Note:  This function to be run in the AlarmServer process
+STRING FUNCTION DC_GetDeviceMode(STRING sIODevice)
+	INT hDev;
+	INT hDevRecord;
+	STRING sMode;
+	
+	//Open DevMode.DBF
+	hDev = DevOpen("DCMode_DBF" , SHARED_MODE);
+
+	//Get first record
+	hDevRecord = DevFirst(hDev);
+	
+	//Loop through all listed devices
+	WHILE (hDevRecord <> DBF_EOF) DO
+		//If device is found
+		IF (DevGetField(hDev , "IODEVICE") = sIODevice) THEN
+			//Retrieve MODE data
+			sMode = DevGetField(hDev , "MODE");
+			
+			//Close DevMode.DBF
+			DevClose(hDev , 0);
+			
+			//Exit function
+			RETURN sMode;
+		ELSE
+			//Get next record
+			hDevRecord = DevNext(hDev);
+		END
+	END
+	
+	//Close DevMode.DBF
+	DevClose(hDev , 0);
+	
+	RETURN "0";
+END
+
+//AR 130610
+//Description - Adds/Removes entries from the DevMode.DBF, which
+//				is used to cache devices in Maintenance and/or Out of Service modes and restore their
+//				state whenever PLSCADA is restarted.
+//Caller	  - DC_SetDeviceMode(STRING sIODevice, INT iMode, INT bHistMode, STRING sCluster = "")
+//Args		  - sIODevice -> The IODevice to Add/Edit/Remove from DevMode.DBF
+//				iMode     -> The mode of IO device:
+//							 0 is Normal
+//							 1 is Disabled (not currently used)
+//							 2 is for Maintenance mode
+//							 4 is for Out of Service mode
+//Note:  This function to be run in the AlarmServer process
+FUNCTION DC_UpdateModeDBF(STRING sIODevice, INT iMode)
+	INT hDev;
+	INT hDevRecord;
+	
+	//Open DevMode.DBF
+	hDev = DevOpen("DCMode_DBF" , SHARED_MODE);
+
+	//Get first record
+	hDevRecord = DevFirst(hDev);
+	
+	//Loop through all listed devices
+	WHILE (hDevRecord <> DBF_EOF) DO
+		//If device is found
+		IF (DevGetField(hDev , "IODEVICE") = sIODevice) THEN
+			//If Mode is 0 (Normal), delete DBF record
+			IF iMode = DC_MODE_NORMAL THEN
+				DevDelete(hDev);
+				DevControl(hDev , PACK_DBF, "");
+			ELSE
+			//Otherwise, edit DBF record
+				DevSetField(hDev , "MODE" , iMode);
+			END
+
+			//Close DevMode.DBF
+			DevClose(hDev , 0);
+			
+			//Exit function
+			RETURN
+		ELSE
+			//Get next record
+			hDevRecord = DevNext(hDev);
+		END
+	END
+	
+	//If device has not been found AND if Mode is something other than 0 (Normal), then add DBF record
+	IF iMode <> DC_MODE_NORMAL THEN
+		DevAppend(hDev)
+		DevSetField(hDev , "IODEVICE" , sIODevice);
+		DevSetField(hDev , "MODE" , iMode);
+	END
+	
+	//Close DevMode.DBF
+	DevClose(hDev , 0);
+END
+
+
+//Description - Loads historically disabled devices when SCADA
+//				is shutdown and restarted.
+//Caller	  - Startup code on I/O Server
+//Args		  - NONE
+FUNCTION DC_DisableDevicesOnStartup()
+	INT hAlm, nAlmRecCount;
+	INT hDev;
+	INT hRec;
+	INT iMode;
+	STRING sNextDevice,
+
+	//Check user login status
+	IF (GetPriv(1 , 0) = 0) THEN
+		//Login to system account if not logged in
+		//Required to view comments from DBF
+		ES_LoginSystem(0);
+	END
+	
+	//Wait for system startup (Disable fails without sleep here)
+	Sleep(5);
+
+	//New in v7.30 and later
+	//Pre-initialize alarm data for subsequent AlmBrowsexxx function calls
+	hAlm = AlmBrowseOpen("", "");
+	//nAlmRecCount = AlmBrowseNumRecords(hAlm);
+	AlmBrowseClose(hAlm);
+	
+	Sleep(5);
+/*
+	//Process for Device Mode
+	//Open DBF
+	hDev = DevOpen("DCMode_DBF" , SHARED_MODE);
+	
+	//Get first record
+	DevFirst(hDev);
+	
+	//Loop through all devices in Maintenance or Out of Service modes
+	WHILE (NOT DevEOF(hDev)) DO
+		//Set next device
+		sNextDevice = DevGetField(hDev , "IODEVICE");
+		iMode = StrToInt(DevGetField(hDev , "MODE"));
+		
+		SELECT CASE iMode
+				CASE DC_MODE_MAINTENANCE	DC_Alarm_AlmSetEnable(sNextDevice, 0, 0);
+				CASE DC_MODE_OUTOFSERVICE	DC_Alarm_AlmSetEnable(sNextDevice, 0, 1);
+		END SELECT	
+
+		//Wait to allow process
+		SleepMS(1);
+
+		//Get next record
+		DevNext(hDev);
+	END	
+
+	//Close DBF
+	DevClose(hDev , 0);
+
+	Sleep(10);
+*/
+	//Process for Disabled devices
+	//Open DBF
+	hDev = DevOpen("DC_DBF" , SHARED_MODE);
+	
+	//Get first record
+	DevFirst(hDev);
+	
+	//Loop through all disabled devices
+	WHILE (NOT DevEOF(hDev)) DO
+		//Set next device
+		sNextDevice = DevGetField(hDev , "IODEVICE");
+
+		//If device is not already disabled
+		IF (IODeviceInfo(sNextDevice , STATUS_MODE) <> DEVICE_DISABLED) THEN
+			//Disable device
+			DC_SetDeviceStatus(sNextDevice , DISABLE_DEVICE, DC_NO_LOG);
+			
+			//Wait to allow device to disable
+			SleepMS(1);
+		END
+
+		//Get next record
+		DevNext(hDev);
+	END
+	
+	//Close DBF
+	DevClose(hDev , 0);
+END
+
+
+//Description - Sets up essential settings for filter popup
+//Caller 	  - "On Page Shown" event for the !DC_Filter page
+//Args	      - NONE
+FUNCTION DC_Init_Filter_Popup()
+	//Set textbox text(s)
+	_ObjectSetProperty(ObjectByName(DC_FILTER_IODEVICE_AN), "Text", DC_FILTER_IODEVICE);
+	_ObjectSetProperty(ObjectByName(DC_FILTER_IOSERVER_AN), "Text", DC_FILTER_IOSERVER);
+	_ObjectSetProperty(ObjectByName(DC_FILTER_STATUS_AN), "Text", DC_FILTER_STATUS);	
+	_ObjectSetProperty(ObjectByName(DC_FILTER_MODE_AN), "Text", DC_FILTER_MODE);	//AR 130610
+	
+	//Start task
+	DC_FILTER_TASK_HANDLE = TaskNew("DC_Filter_Update" , "" , 0);
+END //End function
+
+//Description - Clean-up after exiting page for filter popup
+//Caller 	  - "On Page Exit" event for the !DC_Filter page
+//Args	      - NONE
+FUNCTION DC_Uninit_Filter_Popup()
+	//Terminate task
+	TaskKill(DC_FILTER_TASK_HANDLE);
+END //End function
+
+//Description - Updates all global filter variables
+//Caller 	  - DC_Init_Filter_Popup() as TaskNew
+//Args	      - NONE
+FUNCTION DC_Filter_Update()
+	WHILE (1) DO
+		//Set all filter globals
+		DC_FILTER_IODEVICE = StrTrim(_ObjectGetProperty(ObjectByName(DC_FILTER_IODEVICE_AN), "Text"));
+		DC_FILTER_IOSERVER = StrTrim(_ObjectGetProperty(ObjectByName(DC_FILTER_IOSERVER_AN), "Text"));
+		DC_FILTER_STATUS = StrTrim(_ObjectGetProperty(ObjectByName(DC_FILTER_STATUS_AN), "Text"));
+		DC_FILTER_MODE = StrTrim(_ObjectGetProperty(ObjectByName(DC_FILTER_MODE_AN), "Text"));		//AR 130610
+	
+		//Wait (Free CPU)
+		SleepMS(DC_SCREEN_UPDATE_RATE);
+	END //End while
+END //End function
+
+/////////////////////////////////////////////////////////////
+// USER INTERFACE FUNCTIONS                                //
+// Description - These are all the user driven functions.  //
+/////////////////////////////////////////////////////////////
+
+//Description - Display a popup menu when row is clicked
+//Caller 	  - Background rectangles on page (Input - Touch)
+//Args	      - iRowSelected -> Row that was clicked
+FUNCTION DC_Display_Menu(INT iRowSelected)
+	//Construct menu
+	IF (GetPriv(DC_REQUIRED_SECURITY_LEVEL , 0)) THEN
+		IF (DspAnInfo(DC_BASE_MODE_AN + (iRowSelected - 1) , 2) = "Out of Service") THEN		//AR 130612 - Addid check for Out of Service
+			//Sufficient User Priviledge (Enabled)
+			//DspPopupMenu(0 , "!Enable Device,Disable Device");
+			DspPopupMenu(0 , "!Enable Comms,!Disable Comms");	//AR 130612 Changed wording
+		ELSE IF (DspAnInfo(DC_BASE_STATUS_AN + (iRowSelected - 1) , 2) = "Disabled") THEN
+			//Sufficient User Priviledge (Enabled)
+			//DspPopupMenu(0 , "Enable Device,!Disable Device");
+			DspPopupMenu(0 , "Enable Comms,!Disable Comms");	//AR 130612 Changed wording
+		ELSE
+			//Sufficient User Priviledge (Enabled)
+			//DspPopupMenu(0 , "!Enable Device,Disable Device");
+			DspPopupMenu(0 , "!Enable Comms,Disable Comms");	//AR 130612 Changed wording
+		END END
+
+		//AR 130610 - Added IF...ELSE below
+		IF (DspAnInfo(DC_BASE_MODE_AN + (iRowSelected - 1) , 2) = "Maintenance") THEN
+			//Sufficient User Priviledge (Enabled)
+			//DspPopupMenu(0 , "Set to Normal,!Set to Maintenance Mode,!Set to Out of Service");
+			DspPopupMenu(0 , "Place In Service,!Place in Maintenance,!Place Out of Service");		//AR 130612 Changed wording
+		ELSE IF (DspAnInfo(DC_BASE_MODE_AN + (iRowSelected - 1) , 2) = "Out of Service") THEN
+			//Sufficient User Priviledge (Enabled)
+			//DspPopupMenu(0 , "Set to Normal,!Set to Maintenance Mode,!Set to Out of Service");
+			DspPopupMenu(0 , "Place In Service,!Place in Maintenance,!Place Out of Service");		//AR 130612 Changed wording
+		ELSE
+			//Sufficient User Priviledge (Enabled)
+			//DspPopupMenu(0 , "!Set to Normal,Set to Maintenance Mode,Set to Out of Service");
+			DspPopupMenu(0 , "!Place In Service,Place In Maintenance,Place Out of Service");		//AR 130612 Changed wording
+		END END
+	ELSE
+		//Sufficient User Priviledge (Enabled)
+		//DspPopupMenu(0 , "!Enable Device,!Disable Device,!Set to Normal,!Set to Maintance Mode,!Set to Out of Service");		//AR 130610 - Added 3 entries
+		DspPopupMenu(0 , "!Enable Comms,!Disable Comms,!Place In Service,!Place In Maintance,!Place Out of Service");		//AR 130612 - Added 3 entries changed wording
+	END //End if
+		
+	//Show menu and get user selection
+	//GC_SELECTED_MENU_ITEM = 1 (Enable)
+	//GC_SELECTED_MENU_ITEM = 2 (Disable)
+	//GC_SELECTED_MENU_ITEM = 3 (Normal Mode)			//AR 130610
+	//GC_SELECTED_MENU_ITEM = 4 (Maintenance Mode)		//AR 130610
+	//GC_SELECTED_MENU_ITEM = 5 (Out of Service Mode)	//AR 130610
+	DC_SELECTED_MENU_ITEM = DspPopupMenu();
+	
+	//Set device that was selected
+	DC_DEVICE_SELECTED = DspAnInfo(DC_BASE_IODEVICE_AN + (iRowSelected - 1) , 2);
+
+	//Flag that the menu has been used
+	DC_MENU_FLAG = 1;
+END //End function
+
+//Description - Enables all currently not filtered I/O Devices
+//Caller 	  - Main screen toolbar
+//Args	      - None
+FUNCTION DC_Enable_All()
+	//Set flag
+	DC_ENABLE_ALL_FLAG = 1;
+END
+
+//Description - Disables all currently not filtered I/O Devices
+//Caller 	  - Main screen toolbar
+//Args	      - None
+FUNCTION DC_Disable_All()
+	//Set flag
+	DC_DISABLE_ALL_FLAG = 1;
+END
+
+//AR 130612
+//Description - Places all currently not filtered I/O Devices to Normal (In Service)
+//Caller 	  - Main screen toolbar
+//Args	      - None
+FUNCTION DC_Normal_All()
+	//Set flag
+	DC_NORMAL_ALL_FLAG = 1;
+END
+
+//AR 130612
+//Description - Places all currently not filtered I/O Devices to Maintenance Mode
+//Caller 	  - Main screen toolbar
+//Args	      - None
+FUNCTION DC_Maintenance_All()
+	//Set flag
+	DC_MAINTENANCE_ALL_FLAG = 1;
+END
+
+//AR 130612
+//Description - Places all currently not filtered I/O Devices to Out of Service
+//Caller 	  - Main screen toolbar
+//Args	      - None
+FUNCTION DC_OutOfService_All()
+	//Set flag
+	DC_OUTOFSERVICE_ALL_FLAG = 1;
+END
+
+//Description - Opens filter popup
+//Caller 	  - Filter comment icon button on page main page
+//Args	      - NONE
+FUNCTION DC_Filter()
+	//Open popup
+	WinNewAt("!DC_Filter" , (StrToInt(PageInfo(PAGE_WIDTH)) / 2) - 219 , (StrToInt(PageInfo(PAGE_HEIGHT)) / 2) - 215 , 1+4+64+128+256);
+	
+	//Set popup title
+	WinTitle("Filter Menu");
+END //End function
+
+//Description - Clears all existing filters
+//Caller 	  - "Clear" button on page !DC_Filter
+//Args	      - NONE
+FUNCTION DC_Clear_Filter()
+	DC_FILTER_IODEVICE = "";
+	DC_FILTER_IOSERVER = "";
+	DC_FILTER_STATUS = "";
+	DC_FILTER_MODE = "";		//AR 130610
+	_ObjectSetProperty(ObjectByName(DC_FILTER_IODEVICE_AN), "Text", "");
+	_ObjectSetProperty(ObjectByName(DC_FILTER_IOSERVER_AN), "Text", "");
+	_ObjectSetProperty(ObjectByName(DC_FILTER_STATUS_AN), "Text", "");
+	_ObjectSetProperty(ObjectByName(DC_FILTER_MODE_AN), "Text", "");		//AR 130610
+END //End function
+
+//Description - Starts process of enabling filters
+//Caller 	  - "Enable Filter" button on page !DC_Filter
+//Args	      - NONE
+FUNCTION DC_EnableFilter()
+	DC_FILTER_ENABLED = 1;
+END //End function
+
+//Description - Starts process of Disabling filters
+//Caller 	  - "Disable Filter" button on page !DC_Filter
+//Args	      - NONE
+FUNCTION DC_DisableFilter()
+	DC_FILTER_ENABLED = 0;
+END //End function
+
+/////////////////////////////////////////////////////////////
+// GRAPHICS TO CICODE INTERFACE FUNCTIONS                  //
+// Description - These functions allow the cicode globals  //
+//				 a way to be visible to the graphics.      //
+/////////////////////////////////////////////////////////////
+
+//Description - Retrieves cicode global variable
+//Caller 	  - "Device Status" screen
+//Args	      - NONE
+INT FUNCTION DC_GetScrollbarHidden()
+	RETURN DC_HIDE_SCROLLBAR;
+END //End function
+
+//Description - Retrieves cicode global variable
+//Caller 	  - "Device Status" screen
+//Args	      - NONE
+INT FUNCTION DC_GetFilterState()
+	RETURN DC_FILTER_ENABLED;
+END //End function
+
+
+//AR 130610
+/////////////////////////////////////////////////////////////
+// ALARM ENABLE/DISABLE FUNCTIONS                          //
+// Description - These functions provide for Disabling     //
+//				 or Enabling alarms for a given device.    //
+/////////////////////////////////////////////////////////////
+
+//This function is called from the Client process for enabling or diabling alarms for a specified device.
+//Args		- sEquip            -> The IODevice to enable/disable alarms
+//            bSetEnabled       -> 0 = Disable alarms, 1 = Enable alarms
+//            bIncludeAlmComm   -> 0 = Exclude comm alarms, 1 = Include comm alarms
+//		      sCluster          -> Optional cluster name
+//Returns   - If > = 0          -> Number of alarm record(s) processed if >= 0, or error code if < 0
+//            If < 0            -> Any PLSCADA or Citect error code, plus:
+//                                 901 - Process busy (with another client)...Please try again.
+//                                 902 - Error retrieving alarm records
+INT FUNCTION DC_Client_AlmSetEnable(STRING sEquip, INT bSetEnabled, INT bIncludeAlmComms, STRING sCluster = "")
+    INT hAlarm1;
+    INT nAlmRetVal;
+    STRING sAlmRetVal;
+
+    hAlarm1 = MsgOpen("Alarm", 0, 0, sCluster);
+    
+    sAlmRetVal = MsgRPC(hAlarm1,"DC_Alarm_AlmSetEnable", "^"" + sEquip + "^"," + IntToStr(bSetEnabled) + "," + IntToStr(bIncludeAlmComms), 0);
+    nAlmRetVal = StrToInt(sAlmRetVal);
+    
+    MsgClose("Alarm", hAlarm1);
+    IF nAlmRetVal >= 0 THEN
+    	//Message("AlmSetEnable - " + sEquip, sAlmRetVal + " Alarm record(s) processed.", 64);
+    	RETURN nAlmRetVal;
+    ELSE
+    	//Message("AlmSetEnable", "Error " + sAlmRetVal, 16);
+    	RETURN nAlmRetVal;
+    END
+END
+
+//This function runs in the Alarm Server process...use above DC_Client_AlmSetEnable() function to call from client.
+//Returns:  Number of alarm record(s) processed or error (if < 0)
+INT FUNCTION DC_Alarm_AlmSetEnableOld(STRING sEquip, INT bSetEnabled, INT bIncludeAlmComms)
+    INT nRecIndx;
+    INT nRetCode, nError;
+    
+    IF mbAlmSetEnableMutex = 1 THEN
+    	nError = 901;
+    	RETURN -nError;
+    ELSE
+		mbAlmSetEnableMutex = 1;
+	END
+	
+    ErrSet(1);
+    
+    nRetCode = DC_Alarm_GetAlmRecs(sEquip, bIncludeAlmComms);
+    
+    IF nRetCode = 0 THEN
+	    FOR nRecIndx = 1 TO mnAlmRecCount DO
+	    	IF nError = 0 THEN
+	   			IF bSetEnabled THEN
+	   				nError = AlarmEnableRec(mnAlmRecs[nRecIndx]);
+	    		ELSE
+	   				nError = AlarmDisableRec(mnAlmRecs[nRecIndx]);
+	   			END
+	    	END
+	    END
+	ELSE
+		nError = 902;
+	END
+    
+    mbAlmSetEnableMutex = 0;
+    IF nError = 0 THEN
+    	RETURN mnAlmRecCount;
+    ELSE
+    	RETURN -nError;
+    END
+END
+
+//This function runs in the Alarm Server process and retrieves alarm records to an array for a device
+//Returns:  0 = Success, 1 = Error (there are more than mnAlmRecsMax alarm records for a devie)
+PRIVATE INT FUNCTION DC_Alarm_GetAlmRecs(STRING sEquip, INT bIncludeAlmComms)
+    INT nAlmRec;
+    STRING sAlmName, sAlmCustom1;
+    
+    mnAlmRecCount = 0;
+    nAlmRec = AlarmFirstTagRec("", "", "");
+    
+    WHILE nAlmRec <> -1 AND mnAlmRecCount < mnAlmRecsMax DO
+    	sAlmName = AlarmGetFieldRec(nAlmRec, "Name");
+    	sAlmCustom1 = AlarmGetFieldRec(nAlmRec, "Custom1");
+   	
+   		IF sEquip = sAlmCustom1 THEN
+   			IF sAlmName <> "Communication Failure" OR bIncludeAlmComms THEN
+	   			mnAlmRecCount = mnAlmRecCount + 1;
+	   			mnAlmRecs[mnAlmRecCount] = nAlmRec;
+	   		END
+    	END
+    	
+    	nAlmRec = AlarmNextTagRec(nAlmRec, "", "", "");
+    END
+    
+    IF nAlmRec <> -1 AND mnAlmRecCount = mnAlmRecsMax THEN
+    	RETURN 1;
+    ELSE
+    	RETURN 0;
+    END
+END
+
+//Does not return tags that have never been alarmed (unless initialized).
+//This function runs in the Alarm Server process...use above DC_Client_AlmSetEnable() function to call from client.
+//Returns:  Number of alarm record(s) processed or error (if < 0)
+INT FUNCTION DC_Alarm_AlmSetEnable(STRING sDevName, INT bSetEnabled, INT bIncludeAlmComms)
+	INT hAlm = AlmBrowseOpen("Custom1=" + sDevName, "Tag,AlarmType");
+	INT nAlmNumRecs = AlmBrowseNumRecords(hAlm);
+	INT nRecIndx;
+	STRING sAlmTag, sAlmType;
+	
+	AlmBrowseFirst(hAlm);
+	
+	FOR nRecIndx = 1 TO nAlmNumRecs DO
+		sAlmTag = AlmBrowseGetField(hAlm, "Tag");
+		sAlmtype = AlmBrowseGetField(hAlm, "AlarmType");
+		
+		IF bIncludeAlmComms OR sAlmType <> "Advanced" OR StrSearch(0, sAlmTag, "\LPHD1\EEHealth") = -1 THEN
+			IF bSetEnabled THEN
+				AlmBrowseEnable(hAlm);
+			ELSE
+				AlmBrowseDisable(hAlm);
+			END
+		END
+		AlmBrowseNext(hAlm);
+	END
+	
+	AlmBrowseClose(hAlm);
+	RETURN nAlmNumRecs;
+END
+
+
+//Test Functions
+FUNCTION DC_Client_TestAlmRecs(STRING sDevice = "", STRING sCluster = "")
+    INT hAlarm1;
+    STRING sAlmRetVal;
+
+    hAlarm1 = MsgOpen("Alarm", 0, 0, sCluster);
+    
+    sAlmRetVal = MsgRPC(hAlarm1, "DC_Alarm_TestAlmRecs", "^"" + sDevice + "^",^"" + sCluster + "^"", 0);
+    
+    MsgClose("Alarm", hAlarm1);
+    Message("TestAlmRecs", sAlmRetVal, 64);
+END
+
+STRING FUNCTION DC_Alarm_TestAlmRecs(STRING sDevice, STRING sCluster)
+    INT nAlmRec;
+    INT nAlmRecCount;
+    INT tStart, tDelta;
+    REAL rRecsPerSec;
+    STRING sField_Custom1;
+    STRING sResults;
+    
+    tStart = TimeCurrent();
+    nAlmRec = AlarmFirstTagRec("", "", "");
+    
+    WHILE nAlmRec <> -1 DO
+    	IF sDevice = "" THEN
+			nAlmRecCount = nAlmRecCount + 1;
+		ELSE
+			sField_Custom1 = AlarmGetFieldRec(nAlmRec, "Custom1", 0, sCluster);
+			IF sField_Custom1 = sDevice THEN
+				nAlmRecCount = nAlmRecCount + 1;
+			END
+		END
+    	nAlmRec = AlarmNextTagRec(nAlmRec, "", "", "");
+    END
+    
+    tDelta = TimeCurrent() - tStart;
+    IF tDelta > 0 THEN
+    	 rRecsPerSec = nAlmRecCount / tDelta;
+    ELSE
+    	 rRecsPerSec = nAlmRecCount;    	
+    END
+    
+    sResults = IntToStr(nAlmRecCount) + " Rec(s),  " + IntToStr(tDelta) + " Sec(s),  " + RealToStr(rRecsPerSec, 10, 2) + " Recs/Sec.";
+	RETURN sResults;
+END
+
+
+FUNCTION DC_Client_TestAlmBrowse(STRING sDevice = "", STRING sCluster = "")
+    INT hAlarm1;
+    STRING sAlmRetVal;
+
+    hAlarm1 = MsgOpen("Alarm", 0, 0, sCluster);
+    
+    sAlmRetVal = MsgRPC(hAlarm1, "DC_Alarm_TestAlmBrowse", "^"" + sDevice + "^",^"" + sCluster + "^"", 0);
+    
+    MsgClose("Alarm", hAlarm1);
+    Message("TestAlmBrowse", sAlmRetVal, 64);
+END
+
+STRING FUNCTION DC_Alarm_TestAlmBrowse(STRING sDevice, STRING sCluster)
+	INT hAlm;
+    INT nAlmRec;
+    INT nAlmRecCount;
+    INT tStart, tDelta;
+    REAL rRecsPerSec;
+    STRING sFilter;
+    STRING sResults;
+    
+    tStart = TimeCurrent();
+
+	IF sDevice <> "" THEN
+		sFilter = "Custom1=" + sDevice;
+	END
+	hAlm = AlmBrowseOpen(sFilter, "", sCluster);
+	nAlmRecCount = AlmBrowseNumRecords(hAlm);
+    AlmBrowseFirst(hAlm);
+    
+    FOR nAlmRec = 1 TO nAlmRecCount DO
+		AlmBrowseNext(hAlm);
+    END
+    
+    AlmBrowseClose(hAlm);
+    
+    tDelta = TimeCurrent() - tStart;
+    IF tDelta > 0 THEN
+    	 rRecsPerSec = nAlmRecCount / tDelta;
+    ELSE
+    	 rRecsPerSec = nAlmRecCount;    	
+    END
+    
+    sResults = IntToStr(nAlmRecCount) + " Rec(s),  " + IntToStr(tDelta) + " Sec(s),  " + RealToStr(rRecsPerSec, 10, 2) + " Recs/Sec.";
+	RETURN sResults;
+END
+
+
+FUNCTION DC_Client_TestAlmSummary(STRING sDevice = "", STRING sCluster = "")
+    INT hAlarm1;
+    STRING sAlmRetVal;
+
+    hAlarm1 = MsgOpen("Alarm", 0, 0, sCluster);
+    
+    sAlmRetVal = MsgRPC(hAlarm1, "DC_Alarm_TestAlmSummary", "^"" + sDevice + "^",^"" + sCluster + "^"", 0);
+    
+    MsgClose("Alarm", hAlarm1);
+    Message("TestAlmSummary", sAlmRetVal, 64);
+END
+
+STRING FUNCTION DC_Alarm_TestAlmSummary(STRING sDevice, STRING sCluster)
+	INT hAlm;
+    INT nAlmRec;
+    INT nAlmRecCount;
+    INT tStart, tDelta;
+    REAL rRecsPerSec;
+    STRING sFilter;
+    STRING sResults;
+    
+    tStart = TimeCurrent();
+
+	IF sDevice <> "" THEN
+		sFilter = "Custom1=" + sDevice;
+	END
+	hAlm = AlmSummaryOpen(sFilter, "", sCluster);
+	nAlmRecCount = AlmSummaryNumRecords(hAlm);
+    AlmSummaryFirst(hAlm);
+    
+    FOR nAlmRec = 1 TO nAlmRecCount DO
+		AlmSummaryNext(hAlm);
+    END
+    
+    AlmSummaryClose(hAlm);
+    
+    tDelta = TimeCurrent() - tStart;
+    IF tDelta > 0 THEN
+    	 rRecsPerSec = nAlmRecCount / tDelta;
+    ELSE
+    	 rRecsPerSec = nAlmRecCount;    	
+    END
+    
+    sResults = IntToStr(nAlmRecCount) + " Rec(s),  " + IntToStr(tDelta) + " Sec(s),  " + RealToStr(rRecsPerSec, 10, 2) + " Recs/Sec.";
+	RETURN sResults;
+END
+
+

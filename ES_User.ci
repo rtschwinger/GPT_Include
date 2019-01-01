@@ -1,0 +1,545 @@
+MODULE INT mbLoginFormShown[25];
+
+/* Function to check if touchscreen is being used and if a touchscreen is being used will pop up a
+keypad for user login.  Also handles the use of a system login.
+To use this feature set the [General]TouchScreen setting in the citect.ini on the client machine as follows:
+
+0 (default)	-	No touchscreen; normal usage.
+1			-	Touchscreen keypad.
+2			-	Touchscreen keypad (qwerty style).
+3			-	Popup Windows keyboard (osk).
+*/
+
+FUNCTION ES_Login()
+	IF ParameterGet("General","SystemLogin","1") = "1" THEN
+		ES_Login_Normal_System();
+	ELSE
+		ES_Login_Normal();
+	END
+END
+
+PRIVATE FUNCTION ES_Login_Normal()
+	STRING sUserName;
+	STRING sPassword;
+	INT iUserStatus
+	INT iTouchScreen = StrToInt(ParameterGet("General","TouchScreen","0"));
+	INT iKeypadMode;
+	INT iLoginEvents; //= StrToInt(ParameterGet("General","LoginEvents","0"));
+	
+	IF UserInfo(0) = "0" AND (iTouchScreen = 1 OR iTouchScreen = 2) THEN
+		IF iTouchScreen = 2 THEN
+			iKeypadMode = 4;
+		END
+		sUserName = Keypad("",0 + iKeypadMode,"Login - Enter USER NAME:",200,200);
+		IF sUserName <> "" THEN
+			sPassword = Keypad("",1 + iKeypadMode,"Login - Enter PASSWORD:",250,250);
+			IF Login(sUserName, sPassword) = 0 THEN
+				IF iLoginEvents THEN
+					ES_LoginEvent();
+				END
+			ELSE
+				Message("Login ERROR", "Invalid User/Password Entered", 48);
+			END
+		END	
+	ELSE
+		IF iTouchScreen = 3 THEN
+			ExecEx("osk.exe");
+		END
+		ES_LoginUser();
+		//PLSLoginUser();
+	END
+END
+
+PRIVATE FUNCTION ES_Login_Normal_System()
+	STRING sUserName;
+	STRING sPassword;
+	INT iUserStatus
+	INT iTouchScreen = StrToInt(ParameterGet("General","TouchScreen","0"));
+	INT iKeypadMode;
+	INT iLoginEvents; //= StrToInt(ParameterGet("General","LoginEvents","0"));
+	
+	IF (UserInfo(0) = "0" OR Name() = "plsystem") THEN
+		IF iTouchScreen = 1 OR iTouchScreen = 2 THEN
+			IF iTouchScreen = 2 THEN
+				iKeypadMode = 4;
+			END
+			sUserName = Keypad("",0 + iKeypadMode,"Login - Enter USER NAME:",200,200);
+			IF sUserName <> "" THEN
+				sPassword = Keypad("",1 + iKeypadMode,"Login - Enter PASSWORD:",250,250);
+				IF Login(sUserName, sPassword) = 0 THEN
+					IF iLoginEvents THEN
+						ES_LoginEvent();
+					END
+				ELSE
+					Message("Login ERROR", "Invalid User/Password Entered", 48);
+				END
+			END	
+		ELSE
+			IF iTouchScreen = 3 THEN
+				ExecEx("osk.exe");
+			END
+			ES_LoginUser();
+		END
+	ELSE
+		ES_LoginUser();
+	END
+END
+
+//================================================================================================================
+
+//  These login functions are alternative to the normal Citect functions:  They handle the Touchscreen, SystemLogin,
+//	and LoginEvents settings
+ 
+FUNCTION ES_LoginUser()
+	INT iPage = WinNumber();
+	
+	IF 	mbLoginFormShown[iPage] = TRUE THEN 
+		RETURN;		//form already shown
+	END
+	
+	//Message("User Info: ", UserInfo(0),33);
+	
+	//prevent multiple forms
+	mbLoginFormShown[iPage] = TRUE;
+	
+	IF (UserInfo(0) <> "1") THEN
+		IF Name() <> "plsystem" THEN
+			// Confirm User Action
+			IF (0 = Message(StrToLocalText("@(Confirm)"), StrToLocalText("@(Logout)"), 1+32)) THEN
+				ES_LogoutUser();
+			END
+			mbLoginFormShown[iPage] = FALSE;
+			RETURN;
+		END
+	END
+
+	IF LoginForm() = 0 THEN
+		IF ParameterGet("General","LoginEvents","0") = "1" THEN
+			ES_LoginEvent();
+		END
+	END
+
+	mbLoginFormShown[iPage] = FALSE;
+END
+
+FUNCTION ES_LoginSystem(INT bForceLogin = 0, INT bSetParam = 0)
+	INT bSystemLogin = StrToInt(ParameterGet("General","SystemLogin","1"));
+	IF (bForceLogin OR bSystemLogin) THEN	//AND NOT IsWebClient() THEN
+		IF bForceLogin OR (UserInfo(0) = "0") THEN
+			Login("plsystem", "plsystem");
+		END
+	END
+	IF bSetParam AND NOT bSystemLogin THEN
+		ParameterPut("General","SystemLogin","1");
+	END
+END
+
+FUNCTION ES_LogoutUser(INT bForceLogout = 0)
+	IF ParameterGet("General","LoginEvents","0") = "1" AND Name() <> "" AND Name() <> "plsystem" THEN
+		ES_LogoutEvent();
+	END
+	IF ParameterGet("General","SystemLogin","1") = "1" AND NOT bForceLogout THEN	//AND NOT IsWebClient() THEN
+		Login("plsystem", "plsystem");
+	ELSE
+		Logout();
+	END
+END
+
+INT FUNCTION ES_IsUserLoggedIn()
+	RETURN (UserInfo(0) = "1" AND Name() <> "plsystem");
+END
+
+STRING FUNCTION ES_SecGetUser()
+	STRING sUserName = PLSSecGetUser();
+	
+	IF sUserName = "Login" THEN
+		RETURN "";
+	ELSE
+		RETURN sUserName;
+	END
+END
+
+
+//================================================================================================================
+
+//	General purpose function to insert a user event log
+FUNCTION ES_LogUserEvent(STRING sEquip, STRING sTag, STRING sMessage)
+	//PLSAlmDspEventAdd(0, 0, 1, sDesc, "", sState, sEquip);
+	PLSAlmDspEventAdd(sMessage, sTag, sEquip);
+END
+
+//	Function to insert a login event
+FUNCTION ES_LoginEvent(INT nDelay = 500)
+	SleepMS(nDelay);
+	//PLSAlmDspEventAdd(0, 0, 1, "User Login", Name(), "Login", "");
+	PLSAlmDspEventAdd("User Login", "", "");
+	//SleepMS(nDelay);
+END
+
+//	Function to insert a logout event
+FUNCTION ES_LogoutEvent(INT nDelay = 500)
+	//SleepMS(nDelay);
+	//PLSAlmDspEventAdd(0, 0, 1, "User Login", Name(), "Logout", "");
+	PLSAlmDspEventAdd("User Logout", "", "");
+	SleepMS(nDelay);
+END
+
+//================================================================================================================
+
+//	General purpose input function (alternative to the Input() function), handles the Touchscreen settings
+STRING FUNCTION ES_Input(STRING sTitle, STRING sPrompt, STRING sDefault = "")
+	STRING sValue;
+	INT iTouchScreen = StrToInt(ParameterGet("General","TouchScreen","0"));
+	INT iKeypadMode;
+	
+	ErrSet(1);
+	
+	IF (iTouchScreen = 1 OR iTouchScreen = 2) THEN
+		IF iTouchScreen = 2 THEN
+			iKeypadMode = 4;
+		END
+		IF sTitle = "" THEN
+			sValue = Keypad(sDefault, 0 + iKeypadMode, sPrompt);
+		ELSE
+			sValue = Keypad(sDefault, 0 + iKeypadMode, sTitle + ":  " + sPrompt);
+		END
+	ELSE
+		IF iTouchScreen = 3 THEN
+			ExecEx("osk.exe");
+		END
+		sValue = Input(sTitle, sPrompt, sDefault);
+	END
+	
+	RETURN sValue;
+END
+
+//	Function to return computer role the current client is on:
+//	0 - Client and server (the local client on the server)
+//	1 - Display Client
+//	2 - View-only Client
+//	3 - Web Client
+INT FUNCTION ES_ComputerRole()
+	IF IsWebClient() THEN
+		RETURN 3;
+	ELSE
+		RETURN StrToInt(ParameterGet("Client", "ComputerRole", "4"));
+	END
+END
+
+
+FUNCTION SERWEB()
+
+	Exec("C:\Program Files\Internet Explorer\IExplore.exe");
+
+END
+
+/* FUNCTION TO center the display point FOR popup windows.  The calling function
+must pass the popup pagesize and screen size.  Two calls are required, one for the X position and one for the Y position.
+*/
+
+INT FUNCTION sag_Util_CenterXY(INT nPageSize, INT nScreenSize)
+
+	IF nPageSize > nScreenSize THEN
+		RETURN 0;
+	END
+	RETURN ((nScreenSize/2) - (nPageSize/2));
+END
+
+//================================================================================================================
+
+//Called from Close button on template page (alternative to PLS_NavShutdown), uses the TouchScreen settings.
+FUNCTION ES_NavShutdown()
+	STRING sUserName;
+	STRING sPassword;
+	INT iPage = WinNumber();
+	INT iTouchScreen = StrToInt(ParameterGet("General","TouchScreen","0"));
+	INT iKeypadMode;
+	
+	IF 	mbLoginFormShown[iPage] = TRUE THEN 
+		RETURN;		//form already shown
+	END
+	//prevent multiple forms
+	mbLoginFormShown[iPage] = TRUE;
+	
+	SELECT CASE iTouchScreen
+			CASE 1, 2
+			IF iTouchScreen = 2 THEN
+				iKeypadMode = 4;
+			END
+			sUserName = Keypad("",0 + iKeypadMode,"Shutdown - Enter USER NAME:",200,200);
+			IF sUserName <> "" THEN
+				sPassword = Keypad("",1 + iKeypadMode,"Shutdown - Enter PASSWORD:",250,250);
+				IF Login(sUserName, sPassword) = 0 THEN
+					IF GetPriv(7, 0) THEN
+						Shutdown();
+					ELSE
+						Message("Login ERROR", "You must be an authorized user to close PowerLogic Scada.", 48);
+					END
+				ELSE
+					Message("Login ERROR", "You must be an authorized user to close PowerLogic Scada.", 48);
+				END
+			END	
+		
+		CASE 3
+			ExecEx("osk.exe");
+			PLSNavShutdown();
+		CASE ELSE
+			PLSNavShutdown();
+	END SELECT
+
+	mbLoginFormShown[iPage] = FALSE;
+END
+
+//================================================================================================================
+
+//	Alternative to the UserPasswordForm() function, uses the Touchscreen settings, also works from both local and remote thick clients.
+//  Note:  This does NOT work with web clients; furthermore the web deploymnt databases will not reflect any password changes made.
+
+FUNCTION
+ES_UserPassword()
+	STRING sUserName = Name();
+	STRING sOldPassword, sNewPassword, sNewPasswordVerify;
+	INT iTouchScreen = StrToInt(ParameterGet("General","TouchScreen","0"));
+	INT iKeypadMode;
+	
+	IF sUserName = "" OR sUserName = "plsystem" THEN
+		RETURN
+	END
+	
+	IF iTouchScreen = 1 OR iTouchScreen = 2 THEN
+		IF iTouchScreen = 2 THEN
+			iKeypadMode = 4;
+		END
+		
+		sOldPassword = Keypad("",1 + iKeypadMode,"User Password Change - Enter OLD Password:",200,200);
+		IF IsError() THEN
+			RETURN;
+		END
+		sNewPassword = Keypad("",1 + iKeypadMode,"User Password Change - Enter NEW Password:",230,230);
+		IF IsError() THEN
+			RETURN;
+		END
+		sNewPasswordVerify = Keypad("",1 + iKeypadMode,"User Password Change - Re-Enter NEW Password:",260,260);
+		IF IsError() THEN
+			RETURN;
+		END
+
+	ELSE
+		IF iTouchScreen = 3 THEN
+			ExecEx("osk.exe");
+		END
+		//UserPasswordForm();
+		
+		FormNew("Change Password", 47, 7, 8+16);
+		
+		FormPrompt(0, 0, "User Name");
+		FormPrompt(23, 0, sUserName);
+		
+		FormPrompt(0, 1, "Full Name");
+		FormPrompt(23, 1, FullName());
+	
+		FormPrompt(0, 2, "Enter Old Password");
+		FormPassword(23, 2, "", sOldPassword, 24);
+		
+		FormPrompt(0, 3, "Enter New Password");
+		FormPassword(23, 3, "", sNewPassword, 24);
+	
+		FormPrompt(0, 4, "Re-enter New Password");
+		FormPassword(23, 4, "", sNewPasswordVerify, 24);
+	
+		FormButton(10, 6, "  OK  ", 0, 1);
+		FormButton(30, 6, "Cancel", 0, 2);
+
+		IF FormRead(0) <> 0 THEN
+			RETURN;
+		END
+		
+		//sOldPassword = Input("User Password Change", "Enter OLD Password:", "");
+		//IF IsError() THEN
+		//	RETURN;
+		//END
+		//sNewPassword = Input("User Password Change", "Enter NEW Password:", "");
+		//IF IsError() THEN
+		//	RETURN;
+		//END
+		//sNewPasswordVerify = Input("User Password Change", "Re-Enter NEW Password:", "");
+		//IF IsError() THEN
+		//	RETURN;
+		//END
+	END
+	
+	IF NOT (sOldPassword = "" AND sNewPassword = "" AND sNewPasswordVerify = "") THEN
+		IF sNewPassword = sNewPasswordVerify THEN
+			IF ES_Svr_UserPassword(sUserName, sNewPassword, sOldPassword) = 0 THEN
+				Message("Change User Password", "Password update succeeded.", 64);
+			ELSE
+				Message("Change User Password", "Password update failed.", 48);
+			END
+		ELSE
+			Message("Change User Password", "Password entered mis-match.", 48);
+		END
+	ELSE
+		Message("Change User Password", "No changes made.", 64);
+	END
+END
+
+//  This function is similar to UserPassword() function, except that it runs on teh Alarm server process - This allows support from thick clients.
+INT FUNCTION
+ES_Svr_UserPassword(STRING sUserName, STRING sNewPassword, STRING sOldPassword, STRING sCluster = "")
+    INT hRPC = MsgOpen("Alarm", 0, 0, sCluster);
+    STRING sRetVal;
+	
+    sRetVal = MsgRPC(hRPC, "UserPassword", "^"" + sUserName + "^",^"" + sNewPassword + "^",^"" + sOldPassword + "^"", 0);
+    MsgClose("Alarm", hRPC);
+	
+	RETURN StrToInt(sRetVal);
+END
+
+//  Function to reset user password to user name, uses the Touchscreen settings.  Also works from all thick (not web) clients.
+FUNCTION
+ES_PasswordReset()
+	STRING sUserName;
+	STRING sNewPassword;
+	INT iTouchScreen = StrToInt(ParameterGet("General","TouchScreen","0"));
+	INT iKeypadMode;
+	
+	IF iTouchScreen = 1 OR iTouchScreen = 2 THEN
+		IF iTouchScreen = 2 THEN
+			iKeypadMode = 4;
+		END
+
+		sUserName = Keypad("",0 + iKeypadMode,"Reset Password - Enter User Name:",200,200);
+		IF IsError() THEN
+			RETURN;
+		END
+
+	ELSE
+		IF iTouchScreen = 3 THEN
+			ExecEx("osk.exe");
+		END
+
+		sUserName = Input("Reset Password", "User Name:", "");
+		IF sUserName = "" THEN
+			RETURN;
+		END
+	END
+
+	sNewPassword = sUserName;
+	IF ES_Svr_PasswordReset(sUserName, sNewPassword) = 0 THEN
+		Message("Reset Password:  " + sUserName, "Password reset succeeded.", 64);
+	ELSE
+		Message("Reset Password:  " + sUserName, "Password reset failed.", 48);
+	END
+END
+
+//  This function is similar to UserPassword() function, but does not require old password, also resets password to the user name.
+//  It also runs on the Alarm server process, which allows support from thick clients.
+INT FUNCTION
+ES_Svr_PasswordReset(STRING sUserName, STRING sNewPassword, STRING sCluster = "")
+    INT hRPC = MsgOpen("Alarm", 0, 0, sCluster);
+    STRING sRetVal;
+	
+    sRetVal = MsgRPC(hRPC, "UserPassword", "^"" + sUserName + "^",^"" + sNewPassword + "^"", 0);
+    MsgClose("Alarm", hRPC);
+	
+	RETURN StrToInt(sRetVal);
+END
+
+//================================================================================================================
+
+//Alternative to the LogoutIle() function, uses the SystemLogin and LoginEvents settings.
+FUNCTION
+ES_LogoutIdle(INT nIdleTime, INT nDialogTime = 5, INT bCloseWebClient = 0)
+	IF ISWebClient() AND bCloseWebClient THEN
+		ShutdownIdleWebClient(nIdleTime, nDialogTime);
+	ELSE
+		_ES_LogoutIdle(nIdleTime, nDialogTime);
+	END
+
+
+END
+
+
+/*
+**	FUNCTION NAME:	ES_LogoutIdle
+**
+**	Set the operator logout idle time. After the idle time if the
+**	operator has done nothing the the user is logged out. The idle
+**	time is in minutes. To stop the current logout, call this function
+**	with a -ve idle time.
+**
+*/
+
+INT	hLogoutTask = -1;
+
+PRIVATE FUNCTION
+_ES_LogoutIdle(INT nIdleTime, INT nDialogTime)
+
+
+	IF hLogoutTask > 0 THEN
+		TaskKill(hLogoutTask);
+		hLogoutTask = -1;
+	END
+
+	IF nIdleTime > 0 THEN
+		hLogoutTask = TaskNew("_ES_WaitIdle", IntToStr(nIdleTime) + "," + IntToStr(nDialogTime), 0);
+	END
+END
+
+
+
+/*
+**	FUNCTION NAME:	_ES_WaitIdle
+**
+**	Check if the current user has been idle for the given amount
+**	of time (minutes). If idle then display prompt to allow user
+**	to cancel and wait 5 seconds. If user does not cancel prompt
+**	then log the user out.
+**
+**	Don't call this function directly, this function is created
+**	as a task from FUNCTION LogoutIdle.
+**
+*/
+
+FUNCTION
+_ES_WaitIdle(INT nIdleTime, INT nDialogTime)
+	INT	hForm;
+	INT	lastCommand;
+	INT	x,y,an;
+	INT	newx,newy,newan;
+
+
+	nIdleTime = nIdleTime * 60;
+	WHILE TRUE DO
+		Sleep(nIdleTime / 2);
+		IF UserInfo(6) = "1" AND Name() <> "plsystem" THEN
+			lastCommand = UserInfo(4);
+			IF (TimeCurrent() - lastCommand) > nIdleTime THEN
+				DspGetMouse(newx, newy);
+				newAn = KeyGetCursor();
+				IF newx = x AND newy = Y AND newAn = an THEN
+					IF nDialogTime > 0 THEN
+						hForm = FormNew("@(Logout)", 20, 4, 4);
+						FormPrompt(0, 0, "@(Logout idle time exceded)");
+						FormPrompt(5, 1, "@(OK to Logout)");
+						FormButton(7, 3, "@(Cancel)", 0, 2);
+						FormRead(1);
+						Sleep(nDialogTime);
+						IF FormActive(hForm) THEN
+							FormDestroy(hForm);
+							ES_LogoutUser();
+							//Logout();
+						END;
+					ELSE
+						ES_LogoutUser();
+					END
+				END;
+			END;
+			DspGetMouse(x, y);
+			an = KeyGetCursor();
+		END;
+	END;
+END
+
+
+

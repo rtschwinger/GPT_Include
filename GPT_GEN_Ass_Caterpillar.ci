@@ -1,0 +1,788 @@
+!********************** CATERPILLAR GENSET **********************
+
+! GPT RTS 2018/08/23
+FUNCTION GEN_CAT_EquipPopup_L(STRING strTAG,STRING sCluster)
+    !------------------------------------------------------
+    !Message("1.)GEN_CUMMINS_EquipPopup_L.strTAG: ", strTAG, 33);
+    !                   Equip Ass
+    !------------------------------------------------------
+    GEN_ASS_CAT(strTAG,sCluster);
+    !------------------------------------------------------
+    !                   Equip PopUp
+    !------------------------------------------------------
+    EquipAssMetadataWin("!Caterpiler_Genset_Main");
+!---------------------------------------------------
+END
+
+! GPT RTS 2018/08/23
+FUNCTION GEN_CAT_EquipPopup_R(STRING strTAG,STRING sCluster)
+	STRING sType = "CAT";
+	STRING sPage;
+	INT iSelection;
+	!------------------------------------------------------
+	!                   Equip Ass
+	!------------------------------------------------------
+	GEN_ASS_CAT(strTAG,sCluster);
+	!------------------------------------------------------
+	!                   Equip Menu
+	!------------------------------------------------------
+	DspPopupMenu(0, "," + StrToLocalText("@(User Manual)"));
+	DspPopupMenu(0, StrToLocalText("@(Circuit diagram)"));
+	DspPopupMenu(0, "," + StrToLocalText("@(Alarm List)"));
+	iSelection = DspPopupMenu(-1,"");
+
+
+SELECT CASE iSelection
+	CASE 1
+		Get_UserManual("GEN_CAT");
+	CASE 2
+		Get_Drawing("GEN_CAT");
+	CASE 3
+		AssChainPopUp("!EquipAlarmList");
+	END SELECT
+
+	IF sPage <> "" THEN
+		EquipAssMetadataWin("!CAT_" + sType + "_" + sPage);
+	END
+END
+
+! GPT RTS 2018/08/23
+FUNCTION GEN_ASS_CAT(STRING strTAG,STRING sCluster)
+    !Dim
+    STRING sType,sEquip;
+
+    !Init
+    strDevice=strTAG;								/* strTAG is the Device Name */
+    strCluster=sCluster;
+    IF strCluster <> "" THEN strCluster = strCluster + "."; END
+    sType = "CUMMINS";								/* Type */
+    sEquip = strTAG;								/* Equip */
+
+    !------------------------------------------------------
+    !                   Equip Ass
+    !------------------------------------------------------
+    Ass(-2,"Cluster","'" + sCluster + "'",0);
+    Ass(-2,"Type","'" + sType + "'",0);
+    Ass(-2,"Equip","'" + strTAG + "'",0);
+    ASS_IODevice_To_EquipName(strTAG,sCluster);
+    !------------------------------------------------------
+    !        Variable and Alarm and Trend Tags Ass
+    !------------------------------------------------------
+    Equip_ASS_CAT(strTAG,strCluster);
+END
+
+
+
+! GPT RTS 2018/08/23
+! This function assigns the tag to the variable name that is in the template.
+FUNCTION AssIEC_GEN_CAT(STRING IODevice,STRING ItemTag,STRING Cluster,STRING sHTR="")
+STRING sItem,sTag;
+
+     SELECT CASE ItemTag
+	 
+?HiOilTmp?
+?HiOilTmpSD?
+
+?LoOilPres?
+?LoOilPresSD?
+
+?LoCoolLvlSD?
+?LoCoolLvl?
+
+?OverSpeed?
+?OverSpeedSD?
+
+?CoolTempHi?
+?CoolTempHiSD?
+
+?LoCoolTemp?
+?LoCoolTempSD?
+
+?Running?
+?NotInAuto?
+?WarmUpSts?
+?EStop?
+?LowFuelLvl?
+?CommonAlarm?
+
+?ACMainsFail1?
+?HighDCVolt1?
+?LowDCVolt1?
+?ChgrFail1?
+?CmmnAlm1?
+
+?ACMainsFail2?
+?HighDCVolt2?
+?LowDCVolt2?
+?ChgrFail2?
+?CmmnAlm2?
+
+?ECSPos?
+
+?VoltsAB?
+?VoltsBC?
+?VoltsCA?
+?Frequency?
+?TotalKW?
+?TotalKVAR?
+?FuelRate?
+?TotalFuel?
+?EngSpeed?
+?CoolTemp?
+?BattVolts?
+?TotalkWH?
+?EngStarts?
+?EngRunTime?
+?OilTemp?
+?OilPres?
+?AmpsA?
+?AmpsB?
+?AmpsC?
+?IAvg?
+?TotalPF?
+?DTLvlLtrs?
+?EngStAtt?
+?ExhstTemp?
+?EngStat?
+?CoolDwnTmr?
+?WarmUpTmr?
+
+          !@(External Equipment Health)
+          CASE "COMM","\LPHD1\EEHealth"
+               sItem = "COMM";
+               sTag = "\LPHD1\EEHealth";
+          !@(Low Coolant Temp Shutdown)
+          CASE "LoCoolTempSD","\GGIO\EXL\Gen\LoCoolTempSD"
+               sItem = "LoCoolTempSD";
+               sTag = "\GGIO\EXL\Gen\LoCoolTempSD";
+          !@(Low Coolant Temp Hi)
+          CASE "LoCoolTemp","\GGIO\EXL\Gen\LoCoolTemp"
+               sItem = "LoCoolTemp";
+               sTag = "\GGIO\EXL\Gen\LoCoolTempHi";
+          !@(Warm Up Time Complete)
+          CASE "WarmUpSts","\GGIO\EXL\Gen\WarmUp\Sts"
+               sItem = "WarmUpSts";
+               sTag = "\GGIO\EXL\Gen\WarmUp\Sts";
+          
+          !@(ECU Communications)
+          CASE "ECUComms","\LPHD1\ECUComms"
+               sItem = "ECUComms";
+               sTag = "\LPHD1\ECUComms";
+			   
+		  !@(Warm Up Timer)
+          CASE "WarmUpTmr","\MMXU\REG\WarmUpTmr"
+               sItem ="WarmUpTmr";
+               sTag = "\MMXU\REG\WarmUpTmr";	
+			
+		  !@(Cool Down Timer)
+          CASE "CoolDwnTmr", "\MMXU\REG\CoolDwnTmr"
+               sItem = "CoolDwnTmr";
+               sTag = "\MMXU\REG\CoolDwnTmr";
+          
+		  !@(Battery Voltage)
+          CASE "BattVolts", "\MMXU\REG\BattVolts"
+               sItem = "BattVolts";
+               sTag = "\MMXU\REG\BattVolts";
+          
+		  !@(ECS Switch Position)
+          CASE "ECSPos", "\MMXU\EXL\ECSPos"
+               sItem ="ECSPos";
+               sTag = "\MMXU\EXL\ECSPos";
+          !@(Engine Status)
+          CASE "EngStat", "\MMXU\EXL\EngStat"
+               sItem ="EngStat";
+               sTag = "\MMXU\EXL\EngStat";
+          !@(Coolant Tempreature)
+          CASE "CoolTemp", "\MMXU\REG\CoolTemp"
+               sItem ="CoolTemp";
+               sTag = "\MMXU\REG\CoolTemp";
+               
+          !@(Exhaust Tempreature)
+          CASE "ExhstTemp", "\MMXU\REG\ExhstTemp"
+               sItem ="ExhstTemp";
+               sTag = "\MMXU\REG\ExhstTemp";
+
+          !@(Engine Run Time)
+          CASE "EngRunTime", "\MMXU\REG\EngRunTime"
+               sItem ="EngRunTime";
+               sTag = "\MMXU\REG\EngRunTime";
+
+          !@(Engine Speed)
+          CASE "EngSpeed", "\MMXU\REG\EngSpeed"
+               sItem ="EngSpeed";
+               sTag = "\MMXU\REG\EngSpeed";
+
+          !@(Engine Starts Count)
+          CASE "EngStarts", "\MMXU\REG\EngStarts"
+               sItem ="EngStarts";
+               sTag = "\MMXU\REG\EngStarts";
+
+          !@(Engine Start Attempts)
+          CASE "EngStAtt", "\MMXU\REG\EngStAtt"
+               sItem ="EngStAtt";
+               sTag = "\MMXU\REG\EngStAtt";
+
+          !@(Fuel Rate)
+          CASE "FuelRate", "\MMXU\REG\FuelRate"
+               sItem ="FuelRate";
+               sTag = "\MMXU\REG\FuelRate";
+
+          !@(Engine Fault)
+          CASE "EngFlt", "\GGIO\EXL\Gen\EngFlt"
+               sItem ="EngFlt";
+               sTag = "\GGIO\EXL\Gen\EngFlt";
+
+          !@(Genset Summary Alarm)
+          CASE "SumAlm", "\GGIO\EXL\Gen\SumAlm"
+               sItem ="SumAlm";
+               sTag = "\GGIO\EXL\Gen\SumAlm";
+          
+          !@(Genset Summary Warning)
+          CASE "SumWarn", "\GGIO\EXL\Gen\SumWarn"
+               sItem ="SumWarn";
+               sTag = "\GGIO\EXL\Gen\SumWarn";
+               
+          !@(Genset Emergency Stop)
+          CASE "EStop", "\GGIO\EXL\Gen\Estop"
+               sItem ="EStop";
+               sTag = "\GGIO\EXL\Gen\Estop";
+
+          !@(Genset Frequency)
+          CASE "Frequency", "\MMXU\REG\Frequency"
+               sItem ="Frequency";
+               sTag = "\MMXU\REG\Frequency";
+          
+          !@(Genset High Oil Temperature)
+          CASE "PHiEngTmp", "\GGIO\EXL\Gen\PHiEngTmp"
+               sItem ="HiOilTmp";
+               sTag = "\GGIO\EXL\Gen\PHiEngTmp";
+          
+          !@(Genset High Engine Temperature)
+          CASE "HiEngTmp", "\GGIO\EXL\Gen\HiEngTmp"
+               sItem ="HiOilTmpSD";
+               sTag = "\GGIO\EXL\Gen\HiEngTmp";
+
+          !@(Genset Low Coolant Level)
+          CASE "LoCoolLvl", "\GGIO\EXL\Gen\LoCoolLvl"
+               sItem ="LoCoolLvl";
+               sTag = "\GGIO\EXL\Gen\LoCoolLvl";
+
+          !@(Genset Low Coolant Temperature)
+          CASE "PLoCoolTem", "\GGIO\EXL\Gen\LoCoolTem"
+               sItem ="PLoCoolTem";
+               sTag = "\GGIO\EXL\Gen\PLoCoolTem";
+          
+          !@(Genset Low Coolant Temperature Shutdown)
+          CASE "LoCoolTempSD", "\GGIO\EXL\Gen\LoCoolTmp"
+               sItem ="LoCoolTempSD";
+               sTag = "\GGIO\EXL\Gen\LoCoolTmp";
+
+          !@(Genset Low Fuel Level)
+          CASE "LowFuelLvl", "\GGIO\EXL\Gen\LowFuelLvl"
+               sItem ="LowFuelLvl";
+               sTag = "\GGIO\EXL\Gen\LowFuelLvl";
+
+          !@(Genset Low Oil Pressure)
+          CASE "LoOilPres", "\GGIO\EXL\Gen\LoOilPres"
+               sItem ="LoOilPres";
+               sTag = "\GGIO\EXL\Gen\LoOilPres";
+          
+           !@(ECS Not in Auto)
+          CASE "ECSNotInAuto", "\GGIO\EXL\Gen\ECSNotInAuto"
+               sItem ="ECSNotInAuto";
+               sTag = "\GGIO\EXL\Gen\ECSNotInAuto";
+             
+          !@(Genset Not in Auto)
+          CASE "NotInAuto", "\GGIO\EXL\Gen\NotInAuto"
+               sItem ="NotInAuto";
+               sTag = "\GGIO\EXL\Gen\NotInAuto";
+						
+					!@(Genset Overspeed)
+          CASE "OverSpeed", "\GGIO\EXL\Gen\OverSpeed"
+               sItem ="OverSpeed";
+               sTag = "\GGIO\EXL\Gen\OverSpeed";	
+
+          !@(Genset OverCrank)
+          CASE "OverCrank", "\GGIO\EXL\Gen\OverCrank"
+               sItem ="OverCrank";
+               sTag = "\GGIO\EXL\Gen\OverCrank";
+
+
+          !@(Genset Pre-Low Oil Pressure)
+          CASE "PLoOilPres", "\GGIO\EXL\Gen\PLoOilPres"
+               sItem ="PLoOilPres";
+               sTag = "\GGIO\EXL\Gen\PLoOilPres";
+          
+          !@(Genset Running)
+          CASE "Running", "\GGIO\NFPA110\Gen\Running"
+               sItem ="Running";
+               sTag = "\GGIO\NFPA110\Gen\Running";
+
+          !@(Oil Pressure)
+          CASE "OilPres", "\MMXU\REG\OilPres"
+               sItem ="OilPres";
+               sTag = "\MMXU\REG\OilPres";
+
+          !@(Oil Temperature)
+          CASE "OilTemp", "\MMXU\REG\OilTemp"
+               sItem ="OilTemp";
+               sTag = "\MMXU\REG\OilTemp";
+
+          !@(Phase A to B Voltage)
+          CASE "VoltsAB", "\MMXU\REG\VoltsAB"
+               sItem ="VoltsAB";
+               sTag = "\MMXU\REG\VoltsAB";
+          
+          !@(Phase B to C Voltage)
+          CASE "VoltsBC", "\MMXU\REG\VoltsBC"
+               sItem ="VoltsBC";
+               sTag = "\MMXU\REG\VoltsBC";
+          
+          !@(Phase C to A Voltage)
+          CASE "VoltsCA", "\MMXU\REG\VoltsCA"
+               sItem ="VoltsCA";
+               sTag = "\MMXU\REG\VoltsCA";
+
+          !@(Voltage LL Average)
+          CASE "VLLAvg", "\MMXU\REG\zavg"
+               sItem ="VLLAvg";
+               sTag = "\MMXU\REG\zavg";
+
+          !@(Phase A Current)
+          CASE "AmpsA", "\MMXU\REG\AmpsA"
+               sItem ="AmpsA";
+               sTag = "\MMXU\REG\AmpsA";
+          
+          !@(Phase B Current)
+          CASE "AmpsB", "\MMXU\REG\AmpsB"
+               sItem ="AmpsB";
+               sTag = "\MMXU\REG\AmpsB";
+          
+          !@(Phase C Current)
+          CASE "AmpsC", "\MMXU\REG\AmpsC"
+               sItem ="AmpsC";
+               sTag = "\MMXU\REG\AmpsC";
+
+          !@(Average Amps)
+          CASE "IAvg", "\MMXU\REG\IAvg"
+               sItem ="IAvg";
+               sTag = "\MMXU\REG\IAvg";
+
+          !@(Total Fuel)
+          CASE "TotalFuel", "\MMXU\REG\TotalFuel"
+               sItem ="TotalFuel";
+               sTag = "\MMXU\REG\TotalFuel";
+
+          !@(Total kVA)
+          CASE "TotalKVA", "\MMXU\REG\TotalKVA"
+               sItem ="TotalKVA";
+               sTag = "\MMXU\REG\TotalKVA";
+
+          !@(Total kVAR)
+          CASE "TotalkVAR", "\MMXU\REG\TotalkVAR"
+               sItem ="TotalkVAR";
+               sTag = "\MMXU\REG\TotalkVAR";
+
+          !@(Total kW)
+          CASE "TotalkW", "\MMXU\REG\TotalkW"
+               sItem ="TotalkW";
+               sTag = "\MMXU\REG\TotalkW";
+
+          !@(Total kWh)
+          CASE "TotalkWH", "\MMXU\REG\TotalkWH"
+               sItem ="TotalkWH";
+               sTag = "\MMXU\REG\TotalkWH";
+
+          !@(Total Power Factor)
+          CASE "TotalPF", "\MMXU\REG\TotalPF"
+               sItem ="TotalPF";
+               sTag = "\MMXU\REG\TotalPF";
+
+          !@(DC Charger 1 AC Mains Failure)
+          CASE "ACMainsFail1", "\GGIO\DCC1\ACMainsFail"
+               sItem ="ACMainsFail1";
+               sTag = "\GGIO\DCC1\ACMainsFail";
+
+          !@(DC Charger 1 Common Alarm)
+          CASE "CmmnAlm1", "\GGIO\DCC1\CmmnAlm"
+               sItem ="CmmnAlm1";
+               sTag = "\GGIO\DCC1\CmmnAlm";
+
+          !@(DC Charger 1 Common Alarm Non Urgent) 
+          CASE "CmmnAlmNU1", "\GGIO\DCC1\CmmnAlmNU"
+               sItem ="CmmnAlmNU1";
+               sTag = "\GGIO\DCC1\CmmnAlmNU";
+
+          !@(DC Charger 1 Failure)
+          CASE "ChgrFail1", "\GGIO\DCC1\ChgrFail"
+               sItem ="ChgrFail1";
+               sTag = "\GGIO\DCC1\ChgrFail";
+
+          !@(DC Charger 1 High DC Voltage)
+          CASE "HighDCVolt1", "\GGIO\DCC1\HighDCVolt"
+               sItem ="HighDCVolt1";
+               sTag = "\GGIO\DCC1\HighDCVolt";
+
+          !@(DC Charger 1 High Temperature)
+          CASE "HighTemp1", "\GGIO\DCC1\HighTemp"
+               sItem ="HighTemp1";
+               sTag = "\GGIO\DCC1\HighTemp";
+
+          !@(DC Charger 1 Low DC Voltage)
+          CASE "LowDCVolt1", "\GGIO\DCC1\LowDCVolt"
+               sItem ="LowDCVolt1";
+               sTag = "\GGIO\DCC1\LowDCVolt";
+
+          !@(DC Charger 2 AC Mains Failure)
+          CASE "ACMainsFail2", "\GGIO\DCC2\ACMainsFail"
+               sItem ="ACMainsFail2";
+               sTag = "\GGIO\DCC2\ACMainsFail";
+
+          !@(DC Charger 2 Common Alarm)
+          CASE "CmmnAlm2", "\GGIO\DCC2\CmmnAlm"
+               sItem ="CmmnAlm2";
+               sTag = "\GGIO\DCC2\CmmnAlm";
+
+          !@(DC Charger 2 Common Alarm Non Urgent) 
+          CASE "CmmnAlmNU2", "\GGIO\DCC2\CmmnAlmNU"
+               sItem ="CmmnAlmNU2";
+               sTag = "\GGIO\DCC2\CmmnAlmNU";
+
+          !@(DC Charger 2 Failure)
+          CASE "ChgrFail2", "\GGIO\DCC2\ChgrFail"
+               sItem ="ChgrFail2";
+               sTag = "\GGIO\DCC2\ChgrFail";
+
+          !@(DC Charger 2 High DC Voltage)
+          CASE "HighDCVolt2", "\GGIO\DCC2\HighDCVolt"
+               sItem ="HighDCVolt2";
+               sTag = "\GGIO\DCC2\HighDCVolt";
+
+          !@(DC Charger 2 High Temperature)
+          CASE "HighTemp2", "\GGIO\DCC2\HighTemp"
+               sItem ="HighTemp2";
+               sTag = "\GGIO\DCC2\HighTemp";
+
+          !@(DC Charger 2 Low DC Voltage)
+          CASE "LowDCVolt2", "\GGIO\DCC2\LowDCVolt"
+               sItem ="LowDCVolt2";
+               sTag = "\GGIO\DCC2\LowDCVolt";
+
+         
+          !@(Slave Device 1 Equipment Health)
+          CASE "EEHealth1", "\LPHD1\EEHealth1"
+               sItem ="EEHealth1";
+               sTag = "\LPHD1\EEHealth1";
+               
+          !@(Slave Device 2 Equipment Health)
+          CASE "EEHealth2", "\LPHD2\EEHealth2"
+               sItem ="EEHealth2";
+               sTag = "\LPHD2\EEHealth2";
+               
+          !@(Slave Device 3 Equipment Health)
+          CASE "EEHealth3", "\LPHD1\EEHealth3"
+               sItem ="EEHealth3";
+               sTag = "\LPHD4\EEHealth3";
+
+          !@(Day Tank Level Liters)
+          CASE "DTLvlLtrs","\FOCS\GEN\DT\LVLLTRS"
+          	   sItem ="DTLvlLtrs";
+               sTag = "\FOCS\GEN\DT\LVLLTRS";
+
+          !@(52G Breaker Open/Closed)
+          CASE  "GBrkrOC","\GBrkr\XCBR1\Pos_On"
+          	   sItem ="GBrkrOC";
+               sTag = "\GBrkr\XCBR1\Pos_On";
+          
+          !@(52G Breaker Fail to Open)
+          CASE  "GBrkrFTO","\GBrkr\XCBR1\GBrkrFTO"
+          	   sItem ="GBrkrFTO";
+               sTag = "\GBrkr\XCBR1\GBrkrFTO";
+          
+          !@(52G Breaker Fail to Close)
+          CASE  "GBrkrFTC","\GBrkr\XCBR1\GBrkrFTC"
+          	   sItem ="GBrkrFTC";
+               sTag = "\GBrkr\XCBR1\GBrkrFTC";
+               
+          !@(52G Breaker Fail to Synch)
+          CASE  "GBrkrFTS","\GBrkr\XCBR1\GBrkrFTS"
+          	   sItem ="GBrkrFTS";
+               sTag = "\GBrkr\XCBR1\GBrkrFTS";
+          
+          !@(52U Breaker Fail to Open)
+          CASE  "UBrkrFTO","\UBrkr\XCBR1\UBrkrFTO"
+          	   sItem ="UBrkrFTO";
+               sTag = "\UBrkr\XCBR1\UBrkrFTO";
+          
+          !@(52U Breaker Fail to Close)
+          CASE  "UBrkrFTC","\UBrkr\XCBR1\UBrkrFTC"
+          	   sItem ="UBrkrFTC";
+               sTag = "\UBrkr\XCBR1\UBrkrFTC";
+               
+          !@(52U Breaker Fail to Synch)
+          CASE  "UBrkrFTS","\UBrkr\XCBR1\UBrkrFTS"
+          	   sItem ="UBrkrFTS";
+               sTag = "\UBrkr\XCBR1\UBrkrFTS";
+
+          !@(52G Breaker Trip)
+          CASE  "GBrkrTrip","\GBrkr\PTRC1\Tr"     
+               sItem ="GBrkrTrip";
+               sTag = "\GBrkr\PTRC1\Tr";
+               
+          !@(52U Breaker Open/Closed)
+          CASE  "UBrkrOC","\UBrkr\XCBR1\Pos_On"
+          	   sItem ="UBrkrOC";
+               sTag = "\UBrkr\XCBR1\Pos_On";
+          
+          !@(52U Breaker Trip)
+          CASE  "UBrkrTrip","\UBrkr\PTTRC1\r"     
+               sItem ="UBrkrTrip";
+               sTag = "\UBrkr\PTRC1\Tr";
+
+          !@(52U Breaker Trip)
+          CASE  "UBrkrzavg","\UBrkr\MMXU1\PPV\zavg"     
+               sItem ="UBrkrzavg";
+               sTag = "\UBrkr\MMXU1\PPV\zavg";
+                    
+          !@(Other)
+          CASE ELSE
+               sItem = ItemTag;
+               sTag = ItemTag;
+
+     END SELECT //END CASE STATEMENT
+
+Ass(-2,sItem,Cluster + IODevice + sTag,0);
+Ass(-2,"A_" + sItem,"'" + IODevice + sTag + "'",0);
+Ass(-2,"A_" + sItem + "_On",Cluster + IODevice + sTag + strON,0);
+Ass(-2,"A_" + sItem + "_Dis",Cluster + IODevice + sTag + strDIS,0);
+Ass(-2,"T_" + sItem,"'" + IODevice + sTag + sHTR + "'",0);
+
+END
+
+! GPT RTS 2018/08/23
+FUNCTION GEN_CAT_AutoAlmDis(STRING sCluster)
+
+    INT iAlmOn;
+    INT iAlmDis;
+    INT iAlmQuality;
+    INT iAlmTime;
+    INT TBHandle,TBResult;
+    STRING sAlarmTag;
+    INT iTime;
+    STRING sNotAlarmTag="\LPHD1\EEHealth"
+    INT iNotAlarmStatus;
+    STRING sEquip;
+    INT iEEHealth;
+
+    TBHandle = AlmBrowseOpen("TAG=*Genset*","TAG,Millisec,Custom1,Quality",sCluster);
+    iTime = TimeCurrent();
+      IF TBHandle <> -1 THEN
+          TBResult = AlmBrowseFirst(TBHandle);
+          WHILE (TBResult = 0) DO
+             sAlarmTag = AlmBrowseGetField(TBHandle ,  "TAG");
+             IF sCluster <> "" THEN
+               sAlarmTag = sCluster + "." + sAlarmTag;
+             END //END IF
+             iAlmOn = TagRead(sAlarmTag + strON)
+             iAlmDis = TagRead(sAlarmTag + strDIS)
+             sEquip = AlmBrowseGetField(TBHandle ,  "Custom1");
+             iEEHealth = TagRead(sCluster + "." + sEquip + sNotAlarmTag + strON);
+             iAlmTime = AlmBrowseGetField(TBHandle ,  "Millisec");
+             iNotAlarmStatus = StrSearch(0,sAlarmTag,sNotAlarmTag);
+            //!******************************************************!
+            IF iEEHealth AND NOT iAlmOn THEN
+              IF iNotAlarmStatus = -1 THEN
+                TagWrite(sAlarmTag + strDIS,"1")
+              END //END IF
+            ELSE 
+              TagWrite(sAlarmTag + strDIS,"0")
+            END // END ELSE IF
+            TBResult = AlmBrowseNext(TBHandle);
+          END //END WHILE
+          TBResult = AlmBrowseClose(TBHandle);
+      END // END IF
+END
+
+! GPT RTS 2018/08/23
+FUNCTION Equip_ASS_CAT(STRING strTAG,STRING strCluster)
+    STRING sHTR = "HTR";
+    STRING sRPT = "RPT";
+
+    !@(External Equipment Health)
+    AssIEC_GEN_CAT(strTAG, "COMM",strCluster);
+    !@(Low Coolant Temp Shutdown)
+    AssIEC_GEN_CAT(strTAG, "LoCoolTempSD",strCluster);
+    !@(Low Coolant Temp Hi)
+    AssIEC_GEN_CAT(strTAG, "LoCoolTempHi",strCluster);
+    !@(Warm Up Time Complete)
+    AssIEC_GEN_CAT(strTAG, "WarmUpSts",strCluster);
+    !@(Warm Up Timer)
+    AssIEC_GEN_CAT(strTAG, "F",strCluster);
+    !@(Utility Transfer Tumer)
+    AssIEC_GEN_CAT(strTAG, "UtilXferTmr",strCluster);
+    !@(ECU Communications)
+    AssIEC_GEN_CAT(strTAG, "ECUComms",strCluster);
+    !@(Cool Down Timer)
+    AssIEC_GEN_CAT(strTAG, "CoolDwnTmr",strCluster);
+    !@(ECU Communications)
+    AssIEC_GEN_CAT(strTAG, "ECUComms",strCluster);
+    !@(Battery Voltage)
+    AssIEC_GEN_CAT(strTAG, "BattVolts" ,strCluster);
+    !@(ECU Switch Position)
+    AssIEC_GEN_CAT(strTAG, "CtrlSWPos" ,strCluster);
+    !@(Exhaust Tempreature)
+    AssIEC_GEN_CAT(strTAG, "ExhstTemp" ,strCluster);
+    !@(Coolant Tempreature)
+    AssIEC_GEN_CAT(strTAG, "CoolTemp" ,strCluster);
+    !@(Engine Run Time)
+    AssIEC_GEN_CAT(strTAG, "EngRunTime" ,strCluster);
+    !@(Engine Speed)
+    AssIEC_GEN_CAT(strTAG, "EngSpeed" ,strCluster);
+    !@(Engine Starts Count)
+    AssIEC_GEN_CAT(strTAG, "EngStarts" ,strCluster);
+    !@(Engine Start Attempts Count)
+    AssIEC_GEN_CAT(strTAG, "EngStarts" ,strCluster);
+    !@(Engine Fault)
+    AssIEC_GEN_CAT(strTAG, "EngFlt" ,strCluster);
+    !@(Fuel Rate)
+    AssIEC_GEN_CAT(strTAG, "FuelRate" ,strCluster);
+    !@(Genset Battery Charger AC Failure)
+    AssIEC_GEN_CAT(strTAG, "ACMainsFail" ,strCluster);
+    !@(Genset Battery High DC Voltage)
+    AssIEC_GEN_CAT(strTAG, "HiDCVolts" ,strCluster);
+    !@(Genset Battery Low DC Voltage)
+    AssIEC_GEN_CAT(strTAG, "LoDCVolts" ,strCluster);
+    !@(Genset Check Generator)
+    AssIEC_GEN_CAT(strTAG, "ChkGen" ,strCluster);
+    !@(Genset Summary Alarm)
+    AssIEC_GEN_CAT(strTAG, "SumAlm" ,strCluster);
+    !@(Genset Summary Warning)
+    AssIEC_GEN_CAT(strTAG, "SumWrn" ,strCluster);
+    !@(Genset Emergency Stop)
+    AssIEC_GEN_CAT(strTAG, "Estop" ,strCluster);
+    !@(Genset Frequency)
+    AssIEC_GEN_CAT(strTAG, "Frequency" ,strCluster);
+    !@(Genset High EngineTemperature)
+    AssIEC_GEN_CAT(strTAG, "HiEngTmp" ,strCluster);
+    !@(Genset Low Coolant Level)
+    AssIEC_GEN_CAT(strTAG, "LoCoolLvl" ,strCluster);
+    !@(Genset Low Coolant Temperature)
+    AssIEC_GEN_CAT(strTAG, "LoCoolTmp" ,strCluster);
+    !@(Genset Low Fuel Level)
+    AssIEC_GEN_CAT(strTAG, "LowFuelLvl" ,strCluster)
+    !@(Genset Low Oil Pressure)
+    AssIEC_GEN_CAT(strTAG, "LoOilPres" ,strCluster);
+    !@(Genset Not in Auto)
+    AssIEC_GEN_CAT(strTAG, "NotInAuto" ,strCluster);
+    !@(Genset Overspeed)
+    AssIEC_GEN_CAT(strTAG, "OverSpeed" ,strCluster);
+    !@(Genset Overcrank)
+    AssIEC_GEN_CAT(strTAG, "Overcrank" ,strCluster);
+    !@(Genset Pre-High EngineTemperature)
+    AssIEC_GEN_CAT(strTAG, "PHiEngTmp" ,strCluster);
+    !@(Genset Pre-Low Coolant Temperature)
+    AssIEC_GEN_CAT(strTAG, "PLoCoolTem" ,strCluster);
+    !@(Genset Pre-Low Oil Pressure)
+    AssIEC_GEN_CAT(strTAG, "PLoOilPres" ,strCluster);
+    !@(Genset Run Sequence)
+    AssIEC_GEN_CAT(strTAG, "GenRunSeq" ,strCluster);
+    !@(Genset Running)
+    AssIEC_GEN_CAT(strTAG, "Running" ,strCluster);
+    !@(Genset Supplying Load)
+    AssIEC_GEN_CAT(strTAG, "GenSupLd" ,strCluster);
+    !@(Oil Pressure)
+    AssIEC_GEN_CAT(strTAG, "OilPres" ,strCluster);
+    !@(Oil Temperature)
+    AssIEC_GEN_CAT(strTAG, "OilTemp" ,strCluster);
+    !@(Phase A to B Voltage)
+    AssIEC_GEN_CAT(strTAG, "VoltsAB" ,strCluster);
+    !@(Phase B to C Voltage)
+    AssIEC_GEN_CAT(strTAG, "VoltsBC" ,strCluster);
+    !@(Phase C to A Voltage)
+    AssIEC_GEN_CAT(strTAG, "VoltsCA" ,strCluster);
+    !@(Voltage LL Average)
+    AssIEC_GEN_CAT(strTAG, "VllAvg" ,strCluster);
+    !@(Phase A Current)
+    AssIEC_GEN_CAT(strTAG, "AmpsA" ,strCluster);
+    !@(Phase B Current)
+    AssIEC_GEN_CAT(strTAG, "AmpsB" ,strCluster);
+    !@(Phase C Current)
+    AssIEC_GEN_CAT(strTAG, "AmpsC" ,strCluster);
+    !@(Average Amps)
+    AssIEC_GEN_CAT(strTAG, "IAvg" ,strCluster);
+    !@(Total Fuel)
+    AssIEC_GEN_CAT(strTAG, "TotalFuel" ,strCluster);
+    !@(Total kVA)
+    AssIEC_GEN_CAT(strTAG, "TotalKVA" ,strCluster);
+    !@(Total kVAR)
+    AssIEC_GEN_CAT(strTAG, "TotalkVAR" ,strCluster);
+    !@(Total kVARH)
+    AssIEC_GEN_CAT(strTAG, "kVARH" ,strCluster);
+    !@(Total kW)
+    AssIEC_GEN_CAT(strTAG, "TotalkW" ,strCluster);
+    !@(Total kWh)
+    AssIEC_GEN_CAT(strTAG, "kWH" ,strCluster);
+    !@(Total kWh)
+    AssIEC_GEN_CAT(strTAG, "PerckW" ,strCluster);
+    !@(Total Power Factor)
+    AssIEC_GEN_CAT(strTAG, "TotalPF" ,strCluster);
+    !@(Slave Device 1 Equipment Health)
+    AssIEC_GEN_CAT(strTAG, "EEHealth1" ,strCluster);
+    !@(Slave Device 2 Equipment Health)
+    AssIEC_GEN_CAT(strTAG, "EEHealth2" ,strCluster);
+    !@(Slave Device 3 Equipment Health)
+    AssIEC_GEN_CAT(strTAG, "EEHealth3" ,strCluster);
+    !@(DC Charger 1 AC Mains Failure)
+    AssIEC_GEN_CAT(strTAG, "ACMainsFail1", strCluster);
+    !@(DC Charger 1 Common Alarm)
+    AssIEC_GEN_CAT(strTAG, "CmmnAlm1", strCluster);
+    !@(DC Charger 1 Common Alarm Non Urgent) 
+    AssIEC_GEN_CAT(strTAG, "CmmnAlmNU1", strCluster);
+    !@(DC Charger 1 Failure)
+    AssIEC_GEN_CAT(strTAG, "ChgrFail1",strCluster);
+    !@(DC Charger 1 High DC Voltage)
+    AssIEC_GEN_CAT(strTAG, "HighDCVolt1",strCluster);
+    !@(DC Charger 1 High Temperature)
+    AssIEC_GEN_CAT(strTAG, "HighTemp1",strCluster);
+    !@(DC Charger 1 Low DC Voltage)
+    AssIEC_GEN_CAT(strTAG, "LowDCVolt1",strCluster);
+    !@(DC Charger 2 AC Mains Failure)
+    AssIEC_GEN_CAT(strTAG, "ACMainsFail2",strCluster);
+    !@(DC Charger 2 Common Alarm)
+    AssIEC_GEN_CAT(strTAG, "CmmnAlm2",strCluster);
+    !@(DC Charger 2 Common Alarm Non Urgent) 
+    AssIEC_GEN_CAT(strTAG, "CmmnAlmNU2",strCluster);
+    !@(DC Charger 2 Failure)
+    AssIEC_GEN_CAT(strTAG, "ChgrFail2",strCluster);
+    !@(DC Charger 2 High DC Voltage)
+    AssIEC_GEN_CAT(strTAG, "HighDCVolt2",strCluster);
+    !@(DC Charger 2 High Temperature)
+    AssIEC_GEN_CAT(strTAG, "HighTemp2",strCluster);
+    !@(DC Charger 2 Low DC Voltage)
+    AssIEC_GEN_CAT(strTAG, "LowDCVolt2",strCluster);
+    !@(Day Tank Level Liters)
+    AssIEC_GEN_CAT(strTAG, "DTLvlLtrs",strCluster);
+    !@(52G Breaker Open/Closed)
+    AssIEC_GEN_CAT(strTAG, "GBrkrOC",strCluster);
+    !@(52G Breaker Fail to Open)
+    AssIEC_GEN_CAT(strTAG, "GBrkrFTO",strCluster);
+    !@(52G Breaker Fail to Close)
+    AssIEC_GEN_CAT(strTAG, "GBrkrFTC",strCluster);
+    !@(52G Breaker Fail to Sync)
+    AssIEC_GEN_CAT(strTAG, "GBrkrFTS",strCluster);
+    !@(52G Breaker Trip)
+    AssIEC_GEN_CAT(strTAG, "GBrkrTrip",strCluster);
+    !@(52U Breaker Open/Closed)
+    AssIEC_GEN_CAT(strTAG, "UBrkrOC",strCluster);
+    !@(52U Breaker Fail to Open)
+    AssIEC_GEN_CAT(strTAG, "UBrkrFTO",strCluster);
+    !@(52U Breaker Fail to Close)
+    AssIEC_GEN_CAT(strTAG, "UBrkrFTC",strCluster);
+    !@(52U Breaker Fail to Sync)
+    AssIEC_GEN_CAT(strTAG, "UBrkrFTS",strCluster);
+    !@(52U Breaker Trip)
+    AssIEC_GEN_CAT(strTAG, "UBrkrTrip",strCluster);
+    !@(52U Breaker Voltage)
+    AssIEC_GEN_CAT(strTAG, "UBrkrzavg",strCluster);
+
+END

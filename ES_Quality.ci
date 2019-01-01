@@ -1,0 +1,182 @@
+//Quality.ci - Functions for working with tag quality values in Citect 7.00 to 7.10
+//Citect 7.20 contains equivalent functions. However, these functions could still be used
+//in Citect 7.20 but they would need to be renamed to avoid conflicts (prefix each function
+//name with OPC). Then, un-comment the OPCQuality() function below and use it to convert 
+//7.20 QUALITY type values to the simpler OPC-style values used here.
+//
+//Revision
+// 2010-04-21  Eric Black  Original Version
+// 2010-04-27  Eric Black  Added QualityIsxxx functions. Modified to match 7.20 functionality 
+//                         more closely.
+// 2010-04-29  Eric Black  Added TagQuality function
+
+STRING msQualGeneral[4] = "Bad", "Uncertain", "", "Good";
+STRING msQualBadSubstatus[16] = "Non Specific", "Configuration Error", "Not Connected", "Device Failure", "Sensor Failure", 
+								"Last Known Value", "Comm. Failure", "Not Active", "Waiting For Initial Data";
+STRING msQualUncertainSubstatus[16] = "Non Specific", "Last Usable Value", "", "Sensor Not Accurate", "Eng Unit Exceeded", "Subnormal";
+STRING msQualGoodSubstatus[16] = "Non Specific", "", "", "", "", "", "Local Override";
+STRING msQualExtSubstatus[16] = "Non Specific Extended Substatus", "Scheduled Device Offline", "Invalid Tag Configuration", 
+								"Invalid Tag Value", "Software Error", "Too Many Devices", "Comm. Not Initialized", 
+								"Bad Communication", "Tag Address Out Of Range", "Tag Not Readable", "Tag Not Writable", 
+								"Cluster Not Specified", "Cluster Not Found", "Cluster Disabled", "Session Not Connected", 
+								"Tag Not Resolved";
+STRING msQualLimitStatus[4] = "Limit Not Set", "Below Low", "Above High", "Constant";
+
+INT mcQualPartGeneral = 0;
+INT mcQualPartSubstatus = 1;
+INT mcQualPartLimit = 2;
+INT mcQualPartExtendedSubstatus = 3;
+INT mcQualGeneralBad = 0;
+INT mcQualGeneralUncertain = 1;
+INT mcQualGeneralGood = 3;
+
+
+//Returns the quality of the specified variable tag name or 0 if the tag name was invalid
+//In Citect 7.20 this function is not needed since the quality can be retrieved with the 
+//expression Tagname.Q
+INT
+FUNCTION
+OPCTagQuality(STRING sTagName)
+	INT hTag;
+	INT nQuality = 0;
+	INT status = 0;
+	
+	status = QuePeek(handleQue,hTag,sTagName,1);
+	IF status <> 0 THEN
+		hTag = TagSubscribe(sTagName);
+		QueWrite(handleQue,hTag,sTagName);
+	END
+
+	IF hTag <> -1 THEN
+		nQuality = SubscriptionGetAttribute(hTag, "ValueQuality");
+	END
+
+	
+	RETURN nQuality;
+END
+	
+
+//Returns TRUE if the specified quality value is good/bad/uncertain, such as an OPC quality or quality 
+//returned from SubscriptionGetAttribute(). Otherwise returns FALSE. See Q4777
+INT FUNCTION OPCQualityIsGood(INT nQuality)      RETURN OPCQualityGetPart(nQuality, mcQualPartGeneral) = mcQualGeneralGood;      END
+INT FUNCTION OPCQualityIsBad(INT nQuality)       RETURN OPCQualityGetPart(nQuality, mcQualPartGeneral) = mcQualGeneralBad;       END
+INT FUNCTION OPCQualityIsUncertain(INT nQuality) RETURN OPCQualityGetPart(nQuality, mcQualPartGeneral) = mcQualGeneralUncertain; END
+	
+
+//Returns the OPC-style tag quality from a QUALITY type variable
+//This function requires Citect 7.20 and is disabled for compatibility
+//with Citect 7.00 - 7.10
+//INT
+//FUNCTION
+//OPCQuality(QUALITY qTagQuality)
+//	INT cQualPartOPC = 7;
+//	RETURN QualityGetPart(qTagQuality, cQualPartOPC);
+//END
+
+
+//Returns the value of the specified part of the specified tag quality value
+//
+//nPart 0  General quality
+//      1  Substatus
+//      2  Limit status
+//      3  Extended substatus
+INT
+FUNCTION
+OPCQualityGetPart(INT nQuality, INT nPart)
+	SELECT CASE nPart
+	CASE mcQualPartGeneral
+		RETURN (nQuality BITAND 0xC0) / 0x40;
+	CASE mcQualPartSubstatus
+		RETURN (nQuality BITAND 0x3C) / 0x4;
+	CASE mcQualPartLimit 
+		RETURN nQuality BITAND 0x3;
+	CASE mcQualPartExtendedSubstatus
+		RETURN (nQuality BITAND 0xFF00) / 0x100;
+	CASE ELSE
+		RETURN -1;
+	END SELECT
+END
+
+
+//Returns a string describing the specified tag quality value (such as the 
+//quality returned from SubscriptionGetAttribute()). See Q5741 for more
+//information). This may also be used for OPC quality, but the extended 
+//substatus does not apply.
+//
+//nMode  -2  Short representation in the format <General Quality> [– <Quality Substatus>]
+//		 -1  Full representation in the format <General Quality> [Extended Substatus] – <Quality Substatus>
+//		  0  General quality (default) (e.g. Good, Bad, Uncertain) 
+//        1  Substatus (e.g. Configuration Error, Sensor Failure, etc.)
+//        2  Limit status (e.g. Low, High, Constant)
+//        3  Extended substatus (e.g. Tag Addr Out Of Range, Cluster Disabled, etc.)
+//
+//In short and full representation the substatus and extended substatus will be omitted if they are blank (non-specific)
+//
+STRING
+FUNCTION
+OPCQualityToStr(INT nQuality, INT nPart = 0)
+	INT		cQualPartShort = -2;
+	INT		cQualPartFull = -1
+
+	INT		nGeneralQuality;
+	STRING	sGeneralQuality;
+	INT		nSubstatus;
+	STRING	sSubstatus;
+	INT		nExtendedSubstatus;
+	STRING	sExtendedSubstatus;
+	INT		nLimitStatus;
+	STRING	sLimitStatus;
+	STRING	sQuality;
+
+	nGeneralQuality = OPCQualityGetPart(nQuality, mcQualPartGeneral);
+	sGeneralQuality = msQualGeneral[nGeneralQuality];
+
+	nSubstatus = OPCQualityGetpart(nQuality, mcQualPartSubstatus);
+
+	SELECT CASE nGeneralQuality
+	CASE mcQualGeneralBad
+		sSubstatus = msQualBadSubstatus[nSubstatus];
+	CASE mcQualGeneralUncertain
+		sSubstatus = msQualUncertainSubstatus[nSubstatus];
+	CASE mcQualGeneralGood
+		sSubstatus = msQualGoodSubstatus[nSubstatus];
+	END SELECT
+
+	nExtendedSubstatus = OPCQualityGetPart(nQuality, mcQualPartExtendedSubstatus);
+	sExtendedSubstatus = msQualExtSubstatus[nExtendedSubstatus];
+
+	nLimitStatus = OPCQualityGetPart(nQuality, mcQualPartLimit);
+	sLimitStatus = msQualLimitStatus[nLimitStatus];
+
+	SELECT CASE nPart
+	CASE cQualPartShort
+
+		sQuality = sGeneralQuality;
+		IF StrLength(sSubstatus) > 0 THEN
+			sQuality = sQuality + " - " + sSubstatus;
+		END
+
+	CASE cQualPartFull
+
+		sQuality = sGeneralQuality;
+		
+		IF StrLength(sExtendedSubstatus) > 0 THEN 
+			sQuality = sQuality + " [" + sExtendedSubstatus + "]";
+		END
+
+		IF StrLength(sSubStatus) > 0 THEN 
+			sQuality = sQuality + " - " + sSubstatus;
+		END
+		
+	CASE mcQualPartGeneral
+		sQuality = sGeneralQuality;
+	CASE mcQualPartSubstatus
+		sQuality = sSubstatus;
+	CASE mcQualPartLimit
+		sQuality = sLimitStatus;
+	CASE mcQualPartExtendedSubstatus
+		sQuality = sExtendedSubstatus;
+	END SELECT
+
+	RETURN sQuality;
+END

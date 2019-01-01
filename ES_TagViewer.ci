@@ -1,0 +1,1156 @@
+/*********************************************
+ * ES_TagViewer
+ * Developed by: JC Fore
+ *
+ * Allows the viewing of Realtime data points
+ * in a project and all its included projects.
+ *
+ * 5 function categories (Created to help maintian the code)
+ * ----------------------------------------------------------
+ * 1. Operational - all functions to make TagViewer Open and Operate(as well as close)
+ * 2. Navigational - all functions that make the TagViewer change state(Next, Previous, Home, End buttons)
+ * 3. Data Gathering - all functions for getting specific data to be displayed for each data point(address, value, etc...)
+ * 4. Displaying - all function for displaying all the devices and data points on the screen with their information
+ * 5. Misc. - all other funtions
+ *
+ *********************************************/
+
+
+//Z_CURRent display list
+//Holds all Z_CURRent displayed Names(Tags or Devices)
+STRING disp[25];
+//Holds all the descriptons of each Tag
+STRING desc[25];
+//number of items to display at one time (internally) - if this is changed then the graphics need to be changed also
+INT numToDisp = 25;
+//Z_CURRent number of items actually being displayed
+INT numDisp; 
+
+
+//this project - namely where all your DBF files are going to be located
+GLOBAL STRING project = "";
+//cluster name
+STRING cluster = "";
+//device name
+STRING devName = "";
+
+//resolution for device screen
+STRING devRes = "";
+
+//resolution for tags screen
+STRING resolution = "";
+STRING savedCluster = "";
+
+
+// needed for browsing buttons
+// a stack is created to remember
+// the pages browsed
+GLOBAL INT hStack;
+INT load = 1;
+
+//used to write to tags in the values column
+STRING write = "";
+
+GLOBAL INT handleQue;
+
+GLOBAL STRING Z_CURRPROJ;
+GLOBAL STRING Z_CURRCLUST;
+GLOBAL STRING Z_CURRDEV;
+
+/*********************************************
+ * 		1. Operational
+ *********************************************/
+
+
+//functions for menu.dbf - functions can not have parethesis or parameters in the .dbf file
+FUNCTION TagViewerRW()
+	TagViewer("W","WEN","WEN2","MAINT_MODE_DSK");
+END
+
+FUNCTION TagViewerRO()
+	TagViewer();
+END
+
+
+// Starts the Tag Viewer as a Popup page
+// use this on a button like TagDebug()
+//
+// Parameters: writeCapable - By default "RO" which means read only.  If set to "W" or "w", allows the TagViewer to write to Tags
+//			   spProject - Startup selected project.  Allows a different selected project on startup.
+//			   spCluster - Startup selected spCluster.  Allows a different selected cluster on startup. 
+//			   spIODevName - Startup selected Device Name.  Allows to go directly to tags in a specific Device (Project and Cluster needed).
+//
+//
+FUNCTION TagViewer(STRING writeCapable = "RO", STRING spProject = "", STRING spCluster = "", STRING spIODevName = "")
+		
+	 handleQue = QueOpen("SubscriptionHandleQue",2);
+		
+	 //makes the TagViewer Writable if set to "W" or "w".
+	 write = writeCapable;
+	 INT err = 0;
+	 
+	 IF spProject <> "" THEN
+	 	project = ParameterGet("CtEdit","User","") + "\" + spProject;
+	 	Z_CURRPROJ = spProject;
+	 ELSE
+	 	project = ParameterGet("CtEdit","LASTDATABASEPATH","");
+	 	Z_CURRPROJ = ParameterGet("CtEdit","LASTDATABASE","");
+	 END
+	 IF spCluster <> "" THEN
+	 	Z_CURRCLUST = spCluster;
+	 END
+	 TraceMsg("Call to TagViewerRW : Project : " + Z_CURRPROJ + " Cluster : " + Z_CURRCLUST);
+	 //create and display the popup
+	 ShowTagViewer("Devices", 1);
+	 
+	 IF spIODevName <> "" THEN
+	 	getTags(spIODevName);
+	 END
+	 
+	 //set the Z_CURRent cluster to the default cluster
+	 IF spCluster = "" THEN 
+	 	Z_CURRCLUST = getFirstCluster();
+	 END
+	 
+	 hStack = QueOpen("Stack", 2);
+	 
+	 getIODevices();
+END
+
+
+
+// Clears the Tags page
+FUNCTION clearViewer()
+	unSubscribeAll();
+	QueClose(hStack);
+	QueClose(handleQue);
+	dispClearBuffer("TAG");	
+END
+
+
+//Gets the first cluster from the project that is selected
+STRING FUNCTION getFirstCluster()
+  INT hDev;
+  STRING first = "";
+
+  hDev = dbfConnect("cluster",project);  //fixed problem - clusters didnt change if you switched projects
+  
+  first = DevGetField(hDev,"Name");
+  DevClose(hDev);
+  RETURN first;        
+END
+
+
+//sets the cluster based on the device name passed in
+FUNCTION setCurrCluster(STRING dev)
+	INT hDev;
+	hDev = dbfConnect("equip",project);
+    
+     WHILE NOT DevEOF(hDev) DO
+        //IF DevGetField(hDev,"NAME") = dev THEN
+        IF DevGetField(hDev,"IODEVICE") = dev THEN
+        	Z_CURRCLUST = DevGetField(hDev,"CLUSTER");
+        END
+
+
+        DevNext(hDev);
+     END
+    DevClose(hDev);
+END
+  
+
+//populates the projects into the Combobox for selecting the 
+//different projects.
+FUNCTION getProjects()
+	INT hDev;
+	INT mErr;
+	INT hForm;
+	STRING sTemp;
+	STRING include = ParameterGet("CtEdit","LASTDATABASE","");
+    STRING path = ParameterGet("CtEdit","User","") + "\";
+    getAllprojects(include);
+    
+    STRING title = "Select Project";
+    AssWin("!selectProj",250,250,1+4+256+512,title);
+	WinTitle(title);
+    
+    sTemp = StrToLocalText(include);
+    _ObjectCallMethod(ObjectByName("AN8"), "AddItem", sTemp, 0);   
+    INT i;
+    FOR i = 0 TO num DO
+        sTemp = StrToLocalText(includes[i]);
+     	_ObjectCallMethod(ObjectByName("AN8"), "AddItem", sTemp, 0);        
+
+    END
+
+END
+
+//changes the project based on the selected project in the combobox.
+//This is called when the OK button in the Project Selecter Popup is clicked.
+FUNCTION changeProject()        
+        
+        //project selected in the comobobox
+		STRING proj = _ObjectGetProperty(ObjectByName("AN8"), "Text");	
+		STRING path = ParameterGet("CtEdit","User","") + "\";	
+		project = path + proj;
+		Z_CURRPROJ = proj;
+		WinFree();
+        getClusters();
+END
+
+
+
+
+//populates the clusters into the Comobobox for selecting the
+//different clusters.
+FUNCTION getClusters()
+	INT hDev;
+	INT mErr;
+	INT hForm;
+	STRING sTemp;
+ 
+ 
+    STRING title = "Select Cluster";
+    AssWin("!selectClust",250,250,1+4+256+512,title);
+	WinTitle(title);
+
+    hDev = dbfConnect("cluster",project);  //fixed problem - clusters didnt change if you switched projects
+    WHILE NOT DevEOF(hDev) DO
+     	  sTemp = StrToLocalText(DevGetField(hDev,"NAME"));
+          _ObjectCallMethod(ObjectByName("AN11"), "AddItem", sTemp, 0);
+          DevNext(hDev);
+    END
+
+    DevClose(hDev);
+END
+
+
+//changes the cluster based on the selected cluster in the combobox.
+//This is called when the OK button in the Cluster Selecter Popup is clicked.
+FUNCTION changeCluster()
+
+
+    //cluster selected in the combobox.    
+	STRING clust = _ObjectGetProperty(ObjectByName("AN11"), "Text");
+	
+	Z_CURRCLUST = clust;
+    WinFree();
+    dispClearBuffer("DEV");
+    
+	getIODevices();
+END
+
+
+
+/*********************************************
+ * 		2. Navigational
+ *********************************************/
+
+
+
+//Gets all Devices within the project and displays them
+FUNCTION getIODevices()
+	INT hDev; //h is for handle - device handle
+	INT count = 0;
+	INT mErr;
+	STRING status;
+	STRING netTagDev = "_NetworkTagsDev";
+	INT netfound = 0;
+	
+	unSubscribeAll();
+	TaskNew("DOtsLoad","",0);
+	
+    //equip.dbf 
+    hDev = dbfConnect("equip",project);
+	
+	IF hDev >= 0 THEN
+       WHILE NOT DevEOF(hDev) DO
+       			IF count = numToDisp THEN
+					push(DevRecNo(hDev),hStack);
+    			ELSE
+    			   //IF count < numToDisp AND DevGetField(hDev,"NAME") <> "" AND StrSearch(0,DevGetField(hDev,"NAME"),netTagDev) = -1 AND DevGetField(hDev,"CLUSTER") = Z_CURRCLUST THEN
+    			   IF count < numToDisp AND DevGetField(hDev,"IODEVICE") <> "" AND DevGetField(hDev,"CLUSTER") = Z_CURRCLUST THEN
+    			      IF count = 0 THEN		    	         
+    			      	push(DevRecNo(hDev),hStack);
+    			      END    			   
+    			   	  //disp[count] = DevGetField(hDev,"NAME");
+    			   	  disp[count] = DevGetField(hDev,"IODEVICE");
+    			   	  netfound = 0;
+    			   ELSE
+    			      netfound = 1;
+    			   END    			      
+    			END
+    			
+    			IF netfound = 0 THEN
+       		    	count = count + 1;
+       		    END
+       		    DevNext(hDev);
+       END
+       dispFlushBuffer(count,"DEV");
+       numDisp = count;
+    ELSE
+    	DspError("Cannot open database");
+    END
+
+    
+    DevClose(hDev);
+    dispList("DEV"); //Display Devices
+  
+    LOAD = 0;
+END
+
+//Gets the next numberToDisp devices in the Database
+FUNCTION getNextDevices()
+	INT hDev;
+	INT count = 0;
+	INT mErr;
+	INT pos = 0;
+	STRING status;
+	
+	unSubscribeAll();
+	TaskNew("DOtsLoad","",0);
+
+	IF numDisp >= numToDisp THEN
+
+		hDev = dbfConnect("equip",project);	
+
+		pos = pop(hStack);
+		DevSeek(hDev,pos);
+		
+		WHILE NOT DevEOF(hDev) AND count <= numToDisp DO
+			IF DevGetField(hDev,"IODEVICE") <> "" THEN
+				IF count = numToDisp THEN 
+		    		push(DevRecNo(hDev),hStack);
+		    	ELSE
+		    		IF count < numToDisp THEN
+		    			IF count = 0 THEN
+		  					push(DevRecNo(hDev),hStack);
+		    		 	END    			   		    	         
+		    		  	//disp[count] = DevGetField(hDev,"NAME");
+						disp[count] = DevGetField(hDev,"IODEVICE");
+		    		END   
+		    	END
+		    			                
+		       	count = count + 1;
+		    END
+		    
+	        DevNext(hDev);
+		END
+			
+		IF count < numToDisp THEN 
+		    dispFlushBuffer(count,"DEV"); //flush the display buffer at that position
+		    push(DevRecNo(hDev),hStack); //so we can go to previous page
+		    numDisp = count;
+	   	ELSE
+	    IF count = numToDisp THEN
+		    push(DevRecNo(hDev),hStack);
+		    numDisp = count - 1; //subtract one because if count = numToDisp 
+		                         //it may NOT have more tags - could be last record
+		END
+    	END
+			
+		
+    
+	DevClose(hDev);
+    	dispList("DEV"); //display the List
+    END
+    LOAD = 0;
+END
+
+
+//Gets the previous numToDisp Devices in the Database
+FUNCTION getPrevDevices()
+	INT pos = 0;
+	INT count = 0;
+	INT hDev;
+	INT mErr;
+	STRING status;
+	 
+	unSubscribeAll();
+	TaskNew("DOtsLoad","",0);
+
+	IF stackSize(hStack) > 2 THEN
+		hDev = dbfConnect("equip",project);	
+		pop(hStack); //must pop 3 times to get to the right page (otherwise will go off somewhere else)
+		pop(hStack);
+		pos = pop(hStack);	    
+
+	    DevSeek(hDev,pos);
+	    
+	    WHILE NOT DevEOF(hDev) AND count <= numToDisp DO
+	    	IF DevGetField(hDev,"IODEVICE") <> "" THEN
+				IF count = numToDisp THEN
+					push(DevRecNo(hDev),hStack);
+		    	ELSE
+		    		IF count < numToDisp THEN    			   
+		    			IF count = 0 THEN
+		    				push(DevRecNo(hDev),hStack);
+		    			END
+		    		    //disp[count] = DevGetField(hDev,"NAME");
+						disp[count] = DevGetField(hDev,"IODEVICE");
+		    		END   
+		    	END
+		    			                
+		       	count = count + 1;
+		       	numDisp = count;
+		    END
+		           	
+	        DevNext(hDev);
+	        //numDisp = count;
+		END
+
+		DevClose(hDev);
+	    dispList("DEV");
+    END
+    
+    LOAD = 0;
+END
+
+
+//Goes back to the Devices page
+FUNCTION goBack()
+
+	unSubscribeAll();
+    dispClearBuffer("TAG");
+	QueClose(hStack);
+	
+	hStack = QueOpen("Stack", 2);
+	
+	ShowTagViewer("Devices");
+	getIODevices();
+END
+
+//Goes to the first page of Tags for the Z_CURRent device
+FUNCTION goHome()
+    //simply call the getTags function
+    //resets the Z_CURRent tags page
+    //to the first entry for the device.
+	getTags(Z_CURRDEV);
+END
+
+//Goes to the last page of Tags for the Z_CURRent device
+FUNCTION goEnd()
+
+	INT hDev; //h is for handle - device handle
+	INT count = 0;
+	INT mErr;
+	
+	unSubscribeAll();
+	QueClose(hStack);
+	hStack = QueOpen("Stack", 2);
+	
+	hDev = dbfConnect("variable",project);
+	
+	
+	IF hDev >=0 THEN
+	
+      //loops through the Tags 25 at a time until it hits the final page of Tags
+      WHILE NOT DevEOF(hDev) DO    		
+       		IF DevGetField(hDev,"UNIT") = Z_CURRDEV AND DevGetField(hDev,"CLUSTER") = Z_CURRCLUST THEN //specific tag
+	    			IF count = numToDisp THEN
+	    			      count = 0;  //once it has hit 25 tags it reverts back to zero - for the next 25
+	    			END
+	    			
+		    			IF count < numToDisp THEN 
+			    		    IF count = 0 THEN
+			    		       push(DevRecNo(hDev),hStack);	//pushes the page to the stack  		    
+			    		    END    	
+	    		   		disp[count] = DevGetField(hDev,"NAME");
+	    		   		desc[count] = DevGetField(hDev,"COMMENT");
+	    		   		count = count + 1;
+		    			END	     
+
+    		        		   
+       		END       
+           
+            DevNext(hDev);
+            
+       END
+       
+       
+       
+    IF count < numToDisp THEN 
+    	dispFlushBuffer(count,"TAG"); //flush the display buffer at that position
+    	    push(DevRecNo(hDev),hStack); //so we can go to previous page
+    	numDisp = count;
+    ELSE
+      IF count = numToDisp THEN
+       	   push(DevRecNo(hDev),hStack);
+       numDisp = count - 1;
+       END
+    END
+       
+    ELSE
+    	DspError("Cannot open database");
+    END
+
+    DevClose(hDev);
+    dispList("TAG");
+END
+
+//Goes to the first 25 devices
+FUNCTION goHomeDevices()
+	unSubscribeAll();
+    QueClose(hStack);
+    hStack = QueOpen("Stack",2);
+	getIODevices();
+END
+
+//Goes to the last 25 devices
+FUNCTION goEndDevices()
+	INT hDev; //h is for handle - device handle
+	INT count = 0;
+	INT mErr;
+	
+	unSubscribeAll();
+	QueClose(hStack);
+	hStack = QueOpen("Stack", 2);
+
+	
+	hDev = dbfConnect("equip",project);
+	IF hDev >=0 THEN
+	
+      //loops through the Devices 25 at a time until it hits the final page of Tags
+      WHILE NOT DevEOF(hDev) DO
+     		IF DevGetField(hDev,"IODEVICE") <> "" THEN
+         			IF count = numToDisp THEN
+	    			      count = 0;  //once it has hit 25 tags it reverts back to zero - for the next 25
+	    			END
+	    			
+		    			IF count < numToDisp THEN 
+			    		    IF count = 0 THEN
+			    		       push(DevRecNo(hDev),hStack);	//pushes the page to the stack  		    
+			    		    END    	
+	    		   		//disp[count] = DevGetField(hDev,"NAME");
+	    		   		disp[count] = DevGetField(hDev,"IODEVICE");
+	    		   		count = count + 1;
+		    			END	     
+    		END        		
+       		
+            DevNext(hDev);
+       END
+       
+
+    IF count < numToDisp THEN 
+    	dispFlushBuffer(count,"TAG"); //flush the display buffer at that position
+    	    push(DevRecNo(hDev),hStack); //so we can go to previous page
+    	numDisp = count;
+    ELSE
+      IF count = numToDisp THEN
+       	   push(DevRecNo(hDev),hStack);
+       numDisp = count - 1;
+       END
+    END
+       
+    ELSE
+    	DspError("Cannot open database");
+    END
+
+    DevClose(hDev);
+    dispList("DEV");
+
+END
+
+
+
+//Get Tags based on an I/O Device Name - Starts the List - Called when an I/O Device is selected
+FUNCTION getTags(STRING IOdevName, STRING setCluster = "true")
+	INT hDev; //h is for handle - device handle
+	INT count = 0;
+	INT mErr;
+	INT size;
+	REAL step;
+	IF setCluster = "true" THEN
+		setCurrCluster(IOdevName);
+	END
+	
+	unSubscribeAll();
+	TaskNew("DOtsLoad","",0);
+
+	dispClearBuffer("TAG");
+	QueClose(hStack);
+	hStack = QueOpen("Stack",2);
+	
+	ShowTagViewer("Tags");
+	
+	Z_CURRDEV = IOdevName;
+	
+	hDev = dbfConnect("variable",project);	
+	IF hDev >=0 THEN
+
+      size = DevSize(hDev); 
+       //can then display the tags and store them locally in a String Array 
+      step = 100.00 / IntToReal(size);         
+      
+      //code for grabbing each Tag based on the IODevice and Z_CURRent cluseter selected
+      WHILE NOT DevEOF(hDev) AND NOT count <= numToDisp DO
+           
+            IF DevGetField(hDev,"UNIT") = IOdevName AND DevGetField(hDev,"CLUSTER") = Z_CURRCLUST THEN //specific tag
+    			IF count = numToDisp THEN
+    			    push(DevRecNo(hDev),hStack); //pushes the first record of the next list on stack
+    			ELSE
+	    		IF count < numToDisp THEN
+	    		    IF count = 0 THEN
+	    		     push(DevRecNo(hDev),hStack);  //pushes first record on stack
+	    		    END    	
+    		   		disp[count] = DevGetField(hDev,"NAME");
+    		   		desc[count] = DevGetField(hDev,"COMMENT");
+    		   		
+	    		END	     
+    			END
+    		        count = count + 1;		   
+       		END
+       		       
+            DevNext(hDev);
+       END
+       
+       dispFlushBuffer(count,"TAG");
+       numDisp = count;    
+       
+    ELSE
+    	DspError("Cannot open database");
+    END
+ 
+    DevClose(hDev);
+    dispList("TAG");
+    
+    LOAD = 0;
+END
+
+//Gets next numToDisp Tags in the Database based on an I/O Device name
+FUNCTION getNextTags(STRING IOdevName)
+	INT hDev;
+	INT count = 0;
+	INT mErr;
+	INT pos = 0;
+	
+	
+	unSubscribeAll();
+	TaskNew("DOtsLoad","",0);
+
+	IF numDisp >= numToDisp THEN
+
+        hDev = dbfConnect("variable",project);	
+		pos = pop(hStack);
+		
+		DevSeek(hDev,pos);
+		WHILE NOT DevEOF(hDev) AND count <= numToDisp DO
+			IF DevGetField(hDev,"UNIT") = IOdevName AND DevGetField(hDev,"CLUSTER") = Z_CURRCLUST THEN //specific tag
+	    			IF count = numToDisp THEN
+	    			   push(DevRecNo(hDev),hStack);
+	    			ELSE
+	    			   IF count < numToDisp THEN
+	    			     IF count = 0 THEN
+	    			       	push(DevRecNo(hDev),hStack);
+	    			     END
+	    			   		disp[count] = DevGetField(hDev,"NAME");
+	    			   		desc[count] = DevGetField(hDev,"COMMENT");
+	    			   END   
+	    			END
+	    		    count = count + 1		   
+	       	END
+	       	DevNext(hDev); 
+	      	
+	    END
+    
+    IF count < numToDisp THEN 
+    	dispFlushBuffer(count,"TAG"); //flush the display buffer at that position
+   	    push(DevRecNo(hDev),hStack); //so we can go to previous page
+    	numDisp = count;
+    ELSE
+      IF count = numToDisp THEN
+       	 push(DevRecNo(hDev),hStack);
+       numDisp = count - 1;
+       END
+    END
+
+	DevClose(hDev);
+    dispList("TAG"); //display the List
+   END  
+   
+   LOAD = 0;
+END
+
+
+//Gets the previous numToDisplay items from the Database based on an I/O Device name
+FUNCTION getPrevTags(STRING IOdevName)
+  
+	INT pos = 0;
+	INT count = 0;
+	INT hDev;
+	INT mErr;
+
+	unSubscribeAll();
+	TaskNew("DOtsLoad","",0);
+	
+	IF stackSize(hStack) > 2 THEN //if there is more than one entry(2 records on stack)otherwise we are on the first page
+
+		hDev = dbfConnect("variable",project);	  
+	    pop(hStack); //pop off the next and last addresses to get to the previous
+	    pop(hStack);
+	    pos = pop(hStack);
+	    
+	    DevSeek(hDev,pos);
+	    WHILE NOT DevEOF(hDev) AND count <= numToDisp DO
+		    IF DevGetField(hDev,"UNIT") = IOdevName AND DevGetField(hDev,"CLUSTER") = Z_CURRCLUST THEN
+				IF count = numToDisp THEN
+		           push(DevRecNo(hDev),hStack);
+		    	ELSE
+		    		IF count < numToDisp THEN
+		    	       IF count = 0 THEN
+		    	           push(DevRecNo(hDev),hStack);
+		    	       END    			   
+		    		   disp[count] = DevGetField(hDev,"NAME");
+		    		   desc[count] = DevGetField(hDev,"COMMENT");
+		    		END   
+		    	END
+				count = count + 1; 
+		    END
+	
+		    DevNext(hDev);
+		    numDisp = count
+		END
+		DevClose(hDev);
+	    dispList("TAG");
+    END
+    
+	LOAD = 0;
+    
+END
+
+
+FUNCTION ShowTagViewer(STRING sName, INT bFirstTime = 0)
+	INT nX, nY
+	
+	IF bFirstTime THEN
+		nX = 100;
+		nY = 100;
+	ELSE
+		nX = PageInfo(14);
+		nY = PageInfo(15);
+		WinFree();
+	END
+	ErrLog("ShowTagViewer Creating: "+ "!" + sName );
+	WinNewAt("!" + sName, nX, nY, 8+256+512);
+	WinTitle("Tag Viewer - " + sName);
+END
+
+
+/*********************************************
+ * 		3. Data Gathering
+ *********************************************/
+
+//Displays an input box for changing a Tags value
+//this is called when a user clicks a value in the value column
+//and a "W" or "w" was passed in to the TagViewer() function 
+FUNCTION tagEdit(STRING tag)
+
+	STRING val = "0";
+	IF (write = "W" OR write = "w") THEN
+		val = Input(tag,"Value:",TagRead(tag))
+
+		IF (val = "") THEN
+		val = "0"
+		END
+
+		TagWrite(tag, val)
+	END
+
+END
+
+FUNCTION tagFEdit(STRING tag, STRING val)
+IF (write = "W" OR write = "w") THEN
+TagWrite(tag,val);
+END
+END
+
+//gets a cluster based on a device name
+STRING FUNCTION getDeviceCluster(STRING dev)
+
+	INT hDev;
+	hDev = dbfConnect("equip",project);
+    
+     WHILE NOT DevEOF(hDev) DO
+        //IF DevGetField(hDev,"NAME") = dev THEN
+        IF DevGetField(hDev,"IODEVICE") = dev THEN
+             DevClose(hDev);
+         	RETURN DevGetField(hDev,"CLUSTER");
+        END
+
+
+        DevNext(hDev);
+     END
+    DevClose(hDev);
+END
+
+//checks the communication status of each device. 
+PRIVATE STRING FUNCTION checkComStatus(STRING dev)
+      
+   STRING val = "";
+   STRING status;
+   status = IODeviceInfo(dev, 3 , Z_CURRCLUST);
+   
+   
+   SELECT CASE status
+   CASE "1"
+       RETURN "Running";
+   CASE "2"
+   	   RETURN "Standby";
+   CASE "4"
+   	   RETURN "Starting";
+   CASE "8"
+   	   RETURN "Stopping";
+   CASE "16"
+   	   RETURN "Offline";
+   CASE "32"
+   	   RETURN "Disabled";
+   CASE "66"
+   	   RETURN "Standby write";
+   CASE ELSE
+        RETURN val; //just to test
+   END SELECT
+
+       
+END
+
+
+
+
+//Creates the popup with Tag information attached
+//
+// Parramters : tag - the tag to be displayed in the popup
+//				an - the an number at which to display the status
+//
+FUNCTION statusPopUp(STRING tag, INT an)
+	INT X=100, Y=100;
+	DspAnGetPos(an, X, Y);
+	
+	AssWin("!status",X+100,Y,1+4+256+512,tag);
+	WinTitle(TagRead(tag));
+	
+END
+
+
+STRING lastVal = "0";
+
+STRING FUNCTION getTimestamp(STRING tag)
+	INT subsH = 0;
+	STRING type = "";
+	STRING currVal = "0";
+	INT status = 0;
+	
+	status = QuePeek(handleQue,subsH,tag,1);
+	IF status <> 0 THEN
+		subsH = TagSubscribe(tag);
+		QueWrite(handleQue,subsH,tag);
+	END
+	
+	currVal = TimeToStr(SubscriptionGetAttribute(subsH, "ValueTimestamp"), 1);
+	
+	RETURN currVal;
+
+END
+
+
+
+
+//Simply gets the tag value and updates
+//contiually updates the tag.
+//Alternative to TagRead() - nonblocking
+STRING FUNCTION getValue(STRING tag)
+	INT subsH = 0;
+	INT status = 0;
+	
+	STRING type = "";
+	STRING currVal = "0";
+	
+	//This prevents subscription each time
+	//the page refreshes
+	//only subscribe if it isn't already subscribed to
+	status = QuePeek(handleQue,subsH,tag,1);
+	IF status <> 0 THEN
+		subsH = TagSubscribe(tag);
+		QueWrite(handleQue,subsH,tag);
+	END
+	
+	currVal = SubscriptionGetAttribute(subsH, "Value");
+	
+	IF getQual(tag) = "Good" THEN
+		    type = getType(tag);
+		    SELECT CASE type
+			   CASE "DIGITAL"
+			       currVal = StrFormat(currVal, 1,0,"");
+			   CASE "BYTE"
+			       currVal = StrFormat(currVal, 8,0,"");
+			   CASE "INT"
+			       currVal = StrFormat(currVal, 4,0,"");
+			   CASE "UINT"
+			       currVal = StrFormat(currVal, 4,0,"");
+			   CASE "LONG"
+			       currVal = StrFormat(currVal, 4,0,"");
+			   CASE "REAL"
+			       currVal = StrFormat(currVal, 4,2,"");
+			   CASE "ULONG"
+		           currVal = StrFormat(currVal, 4,0,"");
+			END SELECT
+			
+			
+	    	RETURN currVal;
+	ELSE
+	
+			RETURN "0"; //no formatting
+	END
+		
+END
+
+
+
+//gets the quality of an individual tag - either Good or Bad
+STRING FUNCTION getQual(STRING tag)
+	 
+    INT hQual = "";
+	//STRING QUALITY = "";
+	
+	IF tag <> "" THEN
+	hQual = 1;//OPCTagQuality(tag);
+	//OPCQualityGetPart(hQual, 1) = 0
+	
+	IF hQual = 1 THEN
+		RETURN "Good";
+	ELSE
+		RETURN "Bad";
+	END
+
+	END
+END
+
+
+
+STRING FUNCTION unSubscribeAll()
+	//if you do not unsubscribe all the tags it can
+	//eat up memory like crazy.
+	
+	INT len = QueLength(handleQue);
+	INT i = 0;
+	INT handle = 0;
+	STRING str = "";
+	INT result = 0;
+	
+	WHILE i < len DO
+		result = QueRead(handleQue,handle,str,1);
+		IF result = 0 THEN
+	
+			TagUnsubscribe(handle);
+		END
+		i = i + 1;
+	END
+	
+	
+	RETURN str;
+
+END
+
+
+//based on the PL SCADA tag naming convention
+//Device\...\...
+//gets the IO Device name based on a tag 
+STRING FUNCTION getIODevice(STRING tag)
+	
+	STRING device = "";
+	
+	STRING str1 = "";
+	INT leng = StrLength(tag);
+	
+	INT i = 0;
+	WHILE CharToStr(StrGetChar(tag,i)) <> "\" DO
+	  	str1 = str1 + CharToStr(StrGetChar(tag,i));
+	  	i = i + 1;
+	END
+		  
+	IF (i = leng) THEN
+		RETURN "No Device";  		
+	ELSE
+		RETURN StrTrim(str1);
+	END
+
+END
+
+
+//Gets the address of a Tag
+STRING FUNCTION getTagAddress(STRING tag)
+   RETURN TagGetProperty(tag,"Address",1,"WEN2");
+END
+
+//Gets the type of a Tag
+STRING FUNCTION getType(STRING tag)
+   STRING type = TagGetProperty(tag,"Type",1,"WEN2");
+
+   SELECT CASE type
+   CASE "0"
+       RETURN "DIGITAL";
+   CASE "1"
+   	   RETURN "BYTE";
+   CASE "2"
+   	   RETURN "INT";
+   CASE "3"
+   	   RETURN "UINT";
+   CASE "4"
+   	   RETURN "LONG";
+   CASE "5"
+   	   RETURN "REAL";
+   CASE "6"
+   	   RETURN "STRING";
+   CASE "7"
+   	   RETURN "ULONG";
+   CASE "8"
+   	   RETURN "UNDEFINED";
+   CASE ELSE
+        RETURN ""; 
+   END SELECT
+   	   
+END
+
+//Gets the Engineering units of a specific Tag
+STRING FUNCTION getEU(STRING tag)
+	 STRING eu = TagGetProperty(tag,"Units",1,Z_CURRCLUST);
+	 IF eu = "" AND tag <> "" THEN
+	 	eu = "N/A";
+	 END
+	 
+	 RETURN eu;
+END
+
+/*********************************************
+ * 		4. Displaying
+ *********************************************/
+
+//Refreshes the list of devices
+FUNCTION refreshDevs()
+	dispList("DEV");
+END
+
+//Displays a list of items based on the Type Given
+//This is specific towards the LOCAL VARIABLE NAME
+//if type = "DEV" then it will copy all contents of disp[]
+//to Local Variables that correspond(e.g. DEV1 = disp[0]; DEV2 = disp[1], etc...)
+//its the same if type = "TAG" except the disp[] will be coppied to TAG variables
+PRIVATE FUNCTION dispList(STRING type)
+    INT i = 0;
+    STRING sText;
+    INT j = 0;
+    STRING status;
+	
+	
+    IF type = "DEV" THEN
+    
+		  WHILE i < numToDisp DO
+		    //TagWrite("Z_" +type+IntToStr(i+1), fixStrWidth(disp[i]));
+		    TagWrite("Z_" +type+IntToStr(i+1), disp[i]);
+		    status = checkComStatus(disp[i]);    			   	  
+    	    TagWrite("Z_Status_" + IntToStr(i+1), fixStrWidth(status));	
+		    i = i + 1;	
+		END
+	ELSE
+	   IF type = "TAG" THEN
+	     
+	     WHILE i < numToDisp DO
+	   		//TagWrite("Z_"+type+IntToStr(i+1), fixStrWidth(disp[i]));
+	   		TagWrite("Z_"+type+IntToStr(i+1), disp[i]);
+	   		TagWrite("Z_DESC"+IntToStr(i+1), fixStrWidth(desc[i]));
+	   		
+		    i = i + 1;
+		 END
+	   END
+	END
+
+END
+
+//needed to flush the disp[] buffer
+//when a page is reloaded OR switched
+//with less variables needed than the
+//previous list of items
+FUNCTION dispFlushBuffer(INT index, STRING type)
+  IF index < numToDisp THEN //clear the garbage
+          WHILE index < numToDisp DO
+           		disp[index] = "";
+           	IF type = "TAG" THEN
+           		desc[index] = "";
+            END
+           		index = index + 1;
+          END
+  END
+END
+
+
+//clears the buffer regardless
+FUNCTION dispClearBuffer(STRING type)
+   INT i = 0;
+   
+   WHILE i < numToDisp DO
+            disp[i] = "";
+            TagWrite("Z_"+type+IntToStr(i+1), "");
+            IF type = "TAG" THEN
+	            desc[i] = "";
+		   		TagWrite("Z_DESC"+IntToStr(i+1),"");
+	   		END
+		    i = i + 1;
+   END
+   
+
+END
+
+/*********************************************
+ * 		5. Misc.
+ *********************************************/
+
+//creates a Loading status - for large devices used with TagViewer
+FUNCTION DOtsLoad()
+	INT num = 0;
+	LOAD = 1;
+	
+	STRING DOt1 = "Loading.";
+	STRING DOt2 = "Loading..";
+	STRING DOt3 = "Loading...";
+	STRING Z_CURR = "";
+	STRING Z_DOTS = "";
+	
+	
+	WHILE LOAD = 1 DO
+		SleepMS(500);
+		num = num + 1;
+		IF num > 3 OR num = 0 THEN
+		num = 1;
+		END
+		
+		SELECT CASE num
+		CASE 1
+		     Z_DOTS = DOt1;
+		CASE 2
+		     Z_DOTS = DOt2;
+		CASE 3
+		     Z_DOTS = DOt3;
+		END SELECT
+	END
+	
+	
+END
+
+//fixes tag names and descriptions length 45 or >
+//places an eplipsis(...) after the 25th character
+//then the last 8 charaters in the string
+STRING FUNCTION fixStrWidth(STRING str)
+	
+	INT length = StrLength(str);
+	STRING halfStr = "";
+	STRING newStr = "";
+	
+	IF length >= 45 THEN
+		halfStr = StrMid(str,0,24);
+		newStr = halfStr + "..." + StrMid(str,length-8,length-1);
+		RETURN newStr;
+	END
+	
+	RETURN str;
+	
+
+END

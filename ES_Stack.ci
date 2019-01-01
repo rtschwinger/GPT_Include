@@ -1,0 +1,49 @@
+/* Stack.ci  
+ * This was written just to make the Que Operations simpler for
+ * a specific project needing stacks.  To use the stack create
+ * a Que with QueOpen - (eg. QueOpen("Stack",2);)
+ * Use the following functions to have the Que act as a stack (be sure to close the stack)
+ */
+
+
+/* push()
+ * 
+ * pushes an integer value on a Stack
+ * item - the integer item to place on the stack
+ * h - the handle of the current Stack(really a Que)
+ *
+ * returns 0 if successful, otherwise error int is returned.
+ */
+INT FUNCTION push(INT item, INT h)
+    INT lastNum = stackSize(h);
+    INT err = QueWrite(h,lastNum + 1,IntToStr(item));
+    RETURN err;
+END
+
+
+/* pop()
+ * 
+ * pops an integer value from a Stack - removes it and returns it
+ * h - the handle of the current Stack(really a Que)
+ *
+ * returns the popped integer or -1 if unsuccessful
+ */
+INT FUNCTION pop(INT h)
+     INT lastNum = stackSize(h);
+	 STRING str = -1;
+	 QuePeek(h,lastNum,str,2+8); 
+	 RETURN StrToInt(str);
+END
+
+
+/* stackSize()
+ * 
+ * gets the current stack size.
+ * h - the handle of the current Stack(really a Que)
+ *
+ * returns the current stack Size - 0 if the stack is closed(Que is closed)
+ */
+INT FUNCTION stackSize(INT h)
+    RETURN QueLength(h);
+END
+

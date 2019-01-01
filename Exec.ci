@@ -1,0 +1,73 @@
+// exec.ci -- Q4572
+
+
+INT mhShellExecute = -1;
+
+// Run an application or opens a file, folder, shortcut, email, or web page with the associated application
+//
+// Arguments:
+//
+// sFile           Name of the file, folder, or web page. May contain path substitutions
+// sParameters     List of parameters if running an application (default = "")
+// sOperation      Action verb for file associations. Right-click on the file in
+//                 Windows Explorer to see the available options. For example:
+//                 "edit"     Launch the editor for the document
+//                 "explore"  Open Windows Explorer for the specified folder
+//                 "find"     Open Windows Find dialog
+//                 "open"     Open the file, folder, or application (default)
+//                 "print"    Print the document
+// sDefaultFolder  Default folder for the application to use. May contain path substitutions
+// iMode           Request that the application window opens in a specific state:
+//                 0  Hidden
+//                 1  Normal (default)
+//                 2  Minimized
+//                 3  Maximized
+//                 4  Recent size & position
+//                 5  Current size & position
+//                 7  Minimized (active window remains active)
+//                 10 Default state
+//
+// Return Value:
+//
+// 0   No error
+// 2   File not found
+// 3   Path not found
+// 5   Access denied
+// 8   Out of memory
+// 11  Corrupt exe file
+// 26  Sharing violation
+// 27  File association invalid
+// 28  DDE timeout
+// 29  DDE failed
+// 30  DDE busy
+// 31  No application associated with the file or operation
+// 32  DLL not found
+//
+// Examples:
+//
+// Open Windows' Find dialog:             ExecEx("", "", "find");
+// Open Windows Explorer for c:\windows:  ExecEx("c:\windows");
+// Open a document:                       ExecEx("[data]:report.xls");
+// Print a document:                      ExecEx("c:\doc\report.doc", "", "print");
+// Open an application:                   ExecEx("notepad.exe");
+// Open a web page:                       ExecEx("http://www.citect.com");
+// Create an email message:               ExecEx("mailto:test@microsoft.com");
+// Open a shortcut:                       ExecEx("c:\documents and settings\all users\start menu\My Application.lnk");
+// Run a DOS command:                     ExecEx("cmd.exe", "/c <DOS command>");
+//
+INT
+FUNCTION
+ExecEx(STRING sFile, STRING sParameters = "", STRING sOperation = "", STRING sDefaultFolder = "", INT iMode = 1)
+    INT hWindow = WinGetWndHnd();
+    INT iError;
+    IF mhShellExecute = -1 THEN
+        mhShellExecute = DLLOpen("shell32.dll", "ShellExecuteA", "JJCCCCJ");
+    END
+    sFile = PathToStr(sFile);
+    sDefaultFolder = PathToStr(sDefaultFolder);
+    iError = DLLCallEx(mhShellExecute, hWindow, sOperation, sFile, sParameters, sDefaultFolder, iMode);
+    IF iError > 32 THEN     // Any value over 32 means success
+        iError = 0;
+    END
+    RETURN iError;
+END

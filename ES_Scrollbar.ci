@@ -1,0 +1,207 @@
+//Description - Functions required to display dynamic information with AN using a scrollbar slider
+//Author      - Saeed Ghezawi
+//Revsion By  - (INSERT NAME HERE)
+//Company	  - Schneider Electric
+//Group		  - Software Applications Group
+//Contact	  - saeed.ghezawi@schneider-electric.com // (615) 337-2111
+//Version	  - V1.0.0
+//Date		  - 7/26/2012
+
+//Naming conventions followed:
+//		-Module Variable       -> All caps with underscores between words
+//		-Local Variable Tags   -> First character of each word caps with no spaces/no underscores
+//		-Cicode Local Variable -> Data type identifier letter followed by first character of each
+//								  word caps with no spaces/no underscores	
+//									-Integer - i
+//									-Boolean - b (Special purpose INT)
+//									-Handle  - h (Special purpose INT)
+//									-String  - s
+//									-Real    - r
+//									-Object  - o
+
+//This product uses the following PLSCADA resources (Required for project to use the screen):
+//		-Genies
+//			ES_Vertical_Scrollbar
+//			ES_Horizontal_Scrollbar
+
+//This file includes the following Cicode functions (In order they appear):
+// - General Functions
+//		ES_SliderOnEntry(STRING sSliderTag , STRING sItemSliderSpan , INT iItemsAmount , INT iItemsPerPage = 25 , STRING sCluster = "")
+//		CalculateDeviceSpan(STRING sSliderTag , STRING sItemSliderSpan , INT iItemsAmount , INT iItemsPerPage = 25 , STRING sCluster = "")
+//		ES_SliderPageDown(STRING sSliderTag , INT iItemSliderSpan , INT iItemsPerPage = 25 , STRING sCluster = "")
+//		ES_SliderPageUp(STRING sSliderTag , INT iItemSliderSpan , INT iItemsPerPage = 25 , STRING sCluster = "")
+//		ES_SliderDecrement(STRING sSliderTag , INT iItemSliderSpan , STRING sCluster = "")
+//		ES_SliderIncrement(STRING sSliderTag , INT iItemSliderSpan , STRING sCluster = "")
+
+//Module variables (THESE ARE GLOBAL ONLY TO THIS CICODE FILE)
+//Enumerations -> Citect defined constants
+MODULE INT CACHED_READ = 1;
+MODULE INT ASYNC_MODE = 0;
+
+///////////////////////////////////////////////////////////////
+// GENERAL FUNCTIONS                                         //
+// Description - These functions are used for the scrollbar  //
+///////////////////////////////////////////////////////////////	
+
+//Description - Calculates the amount of slider distance per item
+//Caller	  - ES_SliderOnEntry function
+//Args	      - sSliderTag      -> The tag used to store the slider location
+//			  - sItemSliderSpan -> The tag used to store the amount the slider variable must change to shift one item
+//			  - iItemsAmount	-> Number of items in the complete list
+//			  - iItemsPerPage   -> The number of items on a page shown
+//			  - sCluster        -> Active cluster
+FUNCTION CalculateDeviceSpan(STRING sSliderTag , STRING sItemSliderSpan , INT iItemsAmount , INT iItemsPerPage , STRING sCluster = "")
+	//Read the slider span from tag DB
+	INT iSliderMax = TagGetProperty(sSliderTag , "RangeLow" , CACHED_READ , sCluster);
+	
+	//One page only
+	IF (iItemsAmount <= iItemsPerPage) THEN
+	
+		//Outside possible range (Force single page)
+		TagWrite(sItemSliderSpan , IntToStr(iSliderMax * 2) , 0 , ASYNC_MODE , sCluster);
+		
+	//More than one page
+	ELSE
+		//Calculate slider span per device
+		TagWrite(sItemSliderSpan , IntToStr(iSliderMax / (iItemsAmount - iItemsPerPage)) , 0 , ASYNC_MODE , sCluster);
+	END
+END
+
+
+
+//Description - Scrolls down by a page of items
+//Caller 	  - Double arrow up graphics elements on page
+//				Page global keyboard commanded PageUp key
+//Args	      - sSliderTag      -> The tag used to store the slider location
+//			  - iItemSliderSpan -> The amount the slider variable must change to shift one item
+//			  - iItemsPerPage   -> The number of items on a page shown
+//			  - sCluster        -> Active cluster
+FUNCTION ES_SliderPageUp(STRING sSliderTag , STRING sItemSliderSpan , INT iItemsPerPage , STRING sCluster = "")
+	INT iCount;
+	INT iItemSliderSpan;
+	
+	//Get slider span value (Make sure tag exist)
+	IF (TagInfo(sItemSliderSpan , 18 , sCluster) <> "") THEN
+		iItemSliderSpan = TagRead(sItemSliderSpan , 0 , sCluster);
+	ELSE
+		//Inform user tag doesn't exist and exit function
+		Message("Warning" , "The span tag specified does not exist : " + sItemSliderSpan , 0);
+		RETURN;
+	END
+	
+	//Move down by a page of items
+	FOR iCount = 1 TO iItemsPerPage DO
+		ES_SliderItemUp(sSliderTag , sItemSliderSpan);
+	END
+END
+
+
+
+//Description - Scrolls up by a page of items
+//Caller 	  - Double arrow up graphics elements on page
+//				Page global keyboard commanded PageUp key
+//Args	      - sSliderTag      -> The tag used to store the slider location
+//			  - iItemSliderSpan -> The amount the slider variable must change to shift one item
+//			  - iItemsPerPage   -> The number of items on a page shown
+//			  - sCluster        -> Active cluster
+FUNCTION ES_SliderPageDown(STRING sSliderTag , STRING sItemSliderSpan , INT iItemsPerPage = 25 , STRING sCluster = "")
+	INT iCount;
+	INT iItemSliderSpan;
+	
+	//Get slider span value (Make sure tag exist)
+	IF (TagInfo(sItemSliderSpan , 18 , sCluster) <> "") THEN
+		iItemSliderSpan = TagRead(sItemSliderSpan , 0 , sCluster);
+	ELSE
+		//Inform user tag doesn't exist and exit function
+		Message("Warning" , "The span tag specified does not exist : " + sItemSliderSpan , 0);
+		RETURN;
+	END
+	
+	//Move up by a page of items
+	FOR iCount = 1 TO iItemsPerPage DO
+		ES_SliderItemDown(sSliderTag , sItemSliderSpan);
+	END
+END
+
+
+
+//Description - Scrolls down the device list by a single device
+//				The device array counts up as the graphics
+//				page slider moves down.
+//Caller 	  - Single arrow up graphics elements on page
+//				Page global keyboard commanded Up Arrow key
+//Args	      - sSliderTag      -> The tag used to store the slider location
+//			  - iItemSliderSpan -> The amount the slider variable must change to shift one item
+//			  - sCluster        -> Active cluster
+FUNCTION ES_SliderItemUp(STRING sSliderTag , STRING sItemSliderSpan , STRING sCluster = "")
+	INT iResult;
+	INT iItemSliderSpan;
+	
+	//Get slider span value (Make sure tag exist)
+	IF (TagInfo(sItemSliderSpan , 18 , sCluster) <> "") THEN
+		iItemSliderSpan = TagRead(sItemSliderSpan , 0 , sCluster);
+	ELSE
+		//Inform user tag doesn't exist and exit function
+		Message("Warning" , "The span tag specified does not exist : " + sItemSliderSpan , 0);
+		RETURN;
+	END
+	
+	//Move slider index down one item
+	IF (TagInfo(sSliderTag , 18 , sCluster) <> "") THEN
+		iResult = StrToInt(TagRead(sSliderTag , 0 , sCluster)) - iItemSliderSpan;
+		
+		//Floor on index
+		IF (iResult < 0) THEN
+			TagWrite(sSliderTag , "0" , 0 , ASYNC_MODE , sCluster);
+		ELSE
+			TagWrite(sSliderTag , IntToStr(iResult) , 0 , ASYNC_MODE , sCluster);
+		END
+	//Slider tag does not exist
+	ELSE
+		//Inform user tag doesn't exist and exit function
+		Message("Warning" , "The slider tag specified does not exist : " + sSliderTag , 0);
+		RETURN;
+	END
+END
+
+
+
+//Description - Scrolls up the device list by a single device
+//				The device array counts up as the graphics
+//				page slider moves down.
+//Caller 	  - Single arrow down graphics elements on page
+//				Page global keyboard commanded Down Arrow key
+//Args	      - sSliderTag      -> The tag used to store the slider location
+//			  - iItemSliderSpan -> The amount the slider variable must change to shift one item
+//			  - sCluster        -> Active cluster
+FUNCTION ES_SliderItemDown(STRING sSliderTag , STRING sItemSliderSpan , STRING sCluster = "")
+	INT iResult;
+	INT iSliderMax = Max(TagGetProperty(sSliderTag , "RangeLow" , CACHED_READ , sCluster) , TagGetProperty(sSliderTag , "RangeHigh" , CACHED_READ , sCluster));
+	INT iItemSliderSpan;
+	
+	//Get slider span value (Make sure tag exist)
+	IF (TagInfo(sItemSliderSpan , 18 , sCluster) <> "") THEN
+		iItemSliderSpan = TagRead(sItemSliderSpan , 0 , sCluster);
+	ELSE
+		//Inform user tag doesn't exist and exit function
+		Message("Warning" , "The span tag specified does not exist : " + sItemSliderSpan , 0);
+		RETURN;
+	END
+	
+	//Move slider index up one item
+	IF (TagInfo(sSliderTag , 18 , sCluster) <> "") THEN
+		iResult = StrToInt(TagRead(sSliderTag , 0 , sCluster)) + iItemSliderSpan;
+		
+		//Floor on index
+		IF (iResult > iSliderMax) THEN
+			TagWrite(sSliderTag , IntToStr(iSliderMax) , 0 , ASYNC_MODE , sCluster);
+		ELSE
+			TagWrite(sSliderTag , IntToStr(iResult) , 0 , ASYNC_MODE , sCluster);
+		END
+	//Slider tag does not exist
+	ELSE
+		//Inform user tag doesn't exist and exit function
+		Message("Warning" , "The slider tag specified does not exist : " + sSliderTag , 0);
+		RETURN;
+	END
+END

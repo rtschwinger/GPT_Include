@@ -1,0 +1,151 @@
+MODULE INT hMutex;
+MODULE INT ANALOG_PEN = 4097;
+MODULE INT DIGITAL_PEN = 4098;
+MODULE INT ALARM_PEN = 4099;
+MODULE INT USE_TREND_COMMENT = 1;
+MODULE INT USE_DATAPOINT_NAME = 2;
+MODULE INT USE_CUSTOM_NAME = 3; 
+MODULE INT hEvent;
+MODULE INT	hWin;
+
+FUNCTION SetWindowHandle()
+	hWin = WinNumber();
+END
+
+//Called when a custom button is pressed on the dupont custom trend PA
+FUNCTION CustomTrend_CommandExecuted(OBJECT oPA, STRING sCommand)
+
+	OBJECT	oCommandSystem;
+	OBJECT	oCommand;
+	INT		hWnd;
+	INT		hDLL;
+	INT		hForm;
+	STRING	sTag;
+	
+	//If get tag from screen button pressed
+	IF (sCommand = "GetTagFromScreen") THEN
+		//Disable command button while waiting for mouse click
+		ErrSet( 1 );
+		oCommandSystem 	= _ObjectGetProperty(oPA, "CommandSystem");						
+		oCommand	= _ObjectCallMethod(oCommandSystem, "get_ItemById", "GetTagFromScreen");
+		_ObjectSetProperty(oCommand, "Enabled", 0);
+		ErrSet( 0 );
+	
+		//Change active Windows cursor to a magnifying glass
+		hWnd = WinGetWndHnd();
+		hDLL = DLLOpen( PathToStr("[BIN]:WinUtil.DLL"), "WinUtil_LoadCursor", "JCJ" );
+		DLLCall( hDLL, "^"" + PLSDspGetIncludeProjectPath() + "Magnify.cur" + "^"," + IntToStr(hWnd) );
+		
+		//Store event handler
+		hEvent = GetEvent(1);
+		
+		//Start new event handler
+		OnEvent(1, _CustomTrend_GetClick);
+	END
+END
+
+//Called if custom button "GetTagFromScreen" pressed followed by a mouse click 
+INT FUNCTION _CustomTrend_GetClick()
+	INT	nKey;
+
+	nKey = KeyPeek(0);
+
+	// 21-Oct-08 capture KEY_LBTN_DN and KEY_LBTN_CMD_DN
+	IF (nKey = 0x0801) OR (nKey = 0x605) THEN
+		//Restore old keyboard handler
+		SetEvent(1, hEvent);
+		
+		//Execute command in seperate thread
+		TaskNew("_CaptureTrend", "", 8);
+	END
+
+	RETURN( 0 );
+END
+
+FUNCTION _CaptureTrend()
+	INT	hWnd;
+	INT	hDLL;
+	OBJECT	oPA;
+	OBJECT	oCommandSystem;
+	OBJECT	oCommand;
+	INT iXpos;
+	INT iYpos;
+	INT AN;
+	INT hInfo;
+	STRING tagName;
+	
+	//Get mouse position
+	DspGetMouse (iXpos , iYpos);
+	
+	//Get AN from mouse position
+	AN = DspGetAnFromPoint(iXpos , iYpos);
+
+	//Create info object and retrieve tag name of AN
+	//Requires DspInfo object (Must be deleted after use)
+	IF (AN <> 0) THEN
+		hInfo = DspInfoNew(AN);
+		tagName = DspInfo(hInfo , 3 , 0);
+		DspInfoDestroy(hInfo);
+	END
+	
+	//Restore cursor to normal
+	WinGoto(hWin);
+	hWnd = WinGetWndHnd();
+	hDLL = DLLOpen(PathToStr("[BIN]:WinUtil.DLL"), "WinUtil_NormalCursor", "JJ");
+	DLLCall(hDLL, IntToStr(hWnd));	
+	
+	//If tag exists open trend for point
+	IF (TagInfo(tagName , 18) <> "") THEN
+		IF (TrnInfo(tagName , 1) <> "") THEN
+			Trending_AddPen(tagName);
+		ELSE
+			Message("Information" , "Unable to find trend for the selected tag : " + tagName , 0);
+		END
+	ELSE
+		Message("Information" , "No tag selected from screen. Please try again.", 0);
+	END
+	
+	//Re-enable command button
+	ErrSet(1);
+	oPA = ObjectByName("AN502");
+	oCommandSystem = _ObjectGetProperty(oPA, "CommandSystem");
+	oCommand = _ObjectCallMethod(oCommandSystem, "get_ItemById", "GetTagFromScreen");
+	_ObjectSetProperty(oCommand, "Enabled", 1);
+	ErrSet(0);
+END
+
+
+
+FUNCTION Trending_AddPen(STRING sTag)
+	OBJECT hAnalyst
+	OBJECT hPanes;
+	OBJECT hPane;
+	OBJECT hPens;
+	OBJECT hPen;
+	OBJECT hNewCursor;
+	
+	//Get process anaylst handle
+	hAnalyst = ObjectByName("AN502");
+
+	//Get Panes Handle
+	hPanes = _ObjectGetProperty(hAnalyst, "Panes");
+	
+	//Get Specific Pane Handle
+	hPane = _ObjectCallMethod(hPanes , "get_ItemByName", "CustomTrend");
+	
+	//Get pen handle
+	hPens = _ObjectGetProperty(hPane, "Pens");
+	
+	//Create pen
+	hPen = _ObjectCallMethod(hPens, "Create", ANALOG_PEN , USE_CUSTOM_NAME);
+	
+	//Set pen properties
+	_ObjectSetProperty(hPen, "Name", sTag);
+	_ObjectSetProperty(hPen, "LineColor", PackedRGB(0,125,0));
+	_ObjectSetProperty(hPen, "LineWidth",2);
+	_ObjectSetProperty(hPen, "Height", 100);
+	_ObjectSetProperty(hPen, "Stacked", 0);
+	_ObjectSetProperty(hPen, "VerticalAxisAutoscale", -1);
+	_ObjectSetProperty(hPen, "DataPoint", sTag);
+	_ObjectCallMethod(hPen, "GoToNow");
+END

@@ -1,0 +1,306 @@
+
+
+FUNCTION ES_PLS_ShowAlarm(INT nType, STRING sPage = "")
+	IF sPage = "" THEN
+		PLSDspShowAlarm(nType, "ES_Alarm_" + ES_GetScreenSize());
+	ELSE
+		PLSDspShowAlarm(nType, sPage);
+	END
+END
+
+FUNCTION ES_ShowAlarm_Active(STRING sNewTitle = "", STRING sCustomNameSuffix = "")
+	ES_DspShowAlarm(0, "ES_Alarm_" + ES_GetScreenSize() + ES_GetCustomName(sCustomNameSuffix), sNewTitle);
+END
+
+FUNCTION ES_ShowAlarm_History(STRING sNewTitle = "", STRING sCustomNameSuffix = "")
+	ES_DspShowAlarm(15, "ES_SOE_" + ES_GetScreenSize() + ES_GetCustomName(sCustomNameSuffix), sNewTitle);
+END
+
+FUNCTION ES_ShowAlarm_Operator(STRING sNewTitle = "", STRING sCustomNameSuffix = "")
+	ES_DspShowAlarm(15, "ES_SOE_SecViewerPage_" + ES_GetScreenSize() + ES_GetCustomName(sCustomNameSuffix), sNewTitle);
+END
+
+FUNCTION ES_ShowAlarm_Disabled(STRING sNewTitle = "", STRING sCustomNameSuffix = "")
+	ES_DspShowAlarm(3, "ES_Alarm_" + ES_GetScreenSize() + ES_GetCustomName(sCustomNameSuffix), sNewTitle);
+END
+
+FUNCTION ES_ShowAlarm_Unacknowledged(STRING sNewTitle = "", STRING sCustomNameSuffix = "")
+	ES_DspShowAlarm(1, "ES_Alarm_" + ES_GetScreenSize() + ES_GetCustomName(sCustomNameSuffix), sNewTitle);
+END
+
+FUNCTION ES_ShowAlarm_System(STRING sNewTitle = "", STRING sCustomNameSuffix = "")
+	PLSPageDisplay("ES_AlarmSys_" + ES_GetScreenSize() + ES_GetCustomName(sCustomNameSuffix));
+	IF sNewTitle <> "" THEN
+		ES_DspSetWinTitle(sNewTitle);
+	END
+END
+
+FUNCTION 
+ES_ShowReport(STRING sName = "", STRING sOptions = "", STRING sNewTitle = "", STRING sCustomNameSuffix = "")
+	STRING sPage = _PLS_Apps_BuildPSEReportingUrl(sName, sOptions);	
+
+	IF ("" = sPage) THEN RETURN; END
+	IF ("" = sNewTitle) THEN sNewTitle = sName; END
+	
+	ES_ShowWebPage(sPage, sNewTitle, sCustomNameSuffix, "ES_ShowReport", "^"" + sName + "^",^"" + sOptions + "^",^"" + sNewTitle + "^",^"" + sCustomNameSuffix + "^"");
+END
+
+FUNCTION 
+ES_ShowAdvancedReport(INT nReportID = 0, STRING sNewTitle = "", STRING sCustomNameSuffix = "")
+	STRING sUrl = _PLS_Apps_BuildWebReporterUrl(nReportID);		
+	IF ("" = sUrl) THEN RETURN; END
+	IF ("" = sNewTitle) THEN sNewTitle = "Reporting"; END
+	
+	ES_ShowWebPage(sUrl, sNewTitle, sCustomNameSuffix, "ES_ShowAdvancedReport", IntToStr(nReportID) + ",^"" + sNewTitle + "^",^"" + sCustomNameSuffix + "^"");
+END
+
+FUNCTION ES_ShowENM(STRING sIPAddress = "", STRING sPort = "", STRING sNewTitle = "", STRING sCustomNameSuffix = "")
+	STRING sPage;
+
+	IF ("" = sIPAddress) THEN
+		sIPAddress = ParameterGet("Applications", "ENMServer", "localhost");
+	END
+	IF ("" = sPort) THEN
+		sPort = ParameterGet("Applications", "ENMPort", "82");
+	END
+	IF ("" = sNewTitle) THEN sNewTitle = "ENM Configuration"; END
+	
+	sPage = "http://" + sIPAddress + ":" + sPort;	
+	ES_ShowWebPage(sPage, sNewTitle, sCustomNameSuffix, "ES_ShowENM", "^"" + sIPAddress + "^",^"" + sPort + "^",^"" + sNewTitle + "^",^"" + sCustomNameSuffix + "^"");
+END
+
+FUNCTION ES_ShowDashboard(STRING sSlideShow= "", STRING sNewTitle = "", STRING sCustomNameSuffix = "")
+	STRING sURL;
+
+	IF ("" = sNewTitle) THEN 
+		IF ("" = sSlideShow) THEN
+			sNewTitle = "Dashboards"; 
+		ELSE
+			sNewTitle = "Dashboards - " + sSlideShow;
+		END
+	END
+
+	sUrl = _PLS_Apps_BuildDashboardUrl(sSlideShow);	
+	ES_ShowWebPage(sUrl, sNewTitle, sCustomNameSuffix, "ES_ShowDashboard", "^"" + sSlideShow + "^",^"" + sNewTitle + "^",^"" + sCustomNameSuffix + "^"");
+END
+
+FUNCTION ES_ShowLiveView(STRING sIPAddress, STRING sName = "", STRING sNewTitle = "", STRING sCustomNameSuffix = "")
+	STRING sPage = "http://" + sIPAddress + "/LiveViewViewer/" + sName;	
+
+	IF ("" = sNewTitle) THEN sNewTitle = sName; END
+	IF ("" = sNewTitle) THEN sNewTitle = "LiveView"; END
+	
+	ES_ShowWebPage(sPage, sNewTitle, sCustomNameSuffix, "ES_ShowLiveView", "^"" + sIPAddress + "^",^"" + sName + "^",^"" + sNewTitle + "^",^"" + sCustomNameSuffix + "^"");
+END
+
+FUNCTION 
+ES_ShowWebPage(STRING sPage, STRING sNewTitle = "", STRING sCustomNameSuffix = "", STRING sNavBackMethod = "ES_ShowWebPage", STRING sNavBack = "")
+	OBJECT objViewer;
+	STRING sWebPageName = "ES_WebPage_" + ES_GetScreenSize() + ES_GetCustomName(sCustomNameSuffix);
+		
+	IF ("" = sNewTitle) THEN sNewTitle = "Web Page"; END
+	IF ("" = sNavBack) THEN
+		//sNavBack = "^"" + sWebPageName + "^",^"" + sNewTitle + "^",^"" + sCustomNameSuffix + "^"";
+		sNavBack = "^"" + sPage + "^",^"" + sNewTitle + "^",^"" + sCustomNameSuffix + "^"";
+	END
+	
+	PLSPageDisplay(sWebPageName);
+	ES_DspSetWinTitle(sNewTitle);
+
+	objViewer = ObjectByName("WebViewer");
+	_OBJECTSetProperty(objViewer, "Silent", 1);
+	_OBJECTCallMethod(objViewer, "Navigate2", sPage, "", "", "", "");    
+    
+	PLSNavSetPageLastCommand(sNavBackMethod, sNavBack, sNewTitle);
+END
+
+//==============================================================================================================
+
+FUNCTION ES_ShowAnalyst(STRING sCustomNameSuffix = "")
+	PLSPageDisplay("ES_Analyst_" + ES_GetScreenSize() + ES_GetCustomName(sCustomNameSuffix));
+END
+
+FUNCTION ES_ShowReportPage(STRING sCustomNameSuffix = "")
+	PLSPageDisplay("ES_ReportPage_" + ES_GetScreenSize() + ES_GetCustomName(sCustomNameSuffix));
+END
+
+FUNCTION ES_ShowStartup(STRING sResolution = "", STRING sCustomNameSuffix = "")
+	IF sResolution = "" THEN
+		PLSPageDisplay("ES_Startup_" + ES_GetScreenSize() + ES_GetCustomName(sCustomNameSuffix));
+	ELSE
+		PLSPageDisplay("ES_Startup_" + sResolution + ES_GetCustomName(sCustomNameSuffix));
+	END	
+END
+
+FUNCTION ES_ShowAbout(STRING sCustomNameSuffix = "")
+	STRING sNewTitle = StrToLocalText("@(About PowerLogic SCADA)");
+	
+	PLSPageDisplay("ES_Startup_" + ES_GetScreenSize() + ES_GetCustomName(sCustomNameSuffix));
+	ES_DspSetWinTitle(sNewTitle);
+END
+
+FUNCTION ES_ShowTechSupport()
+	WinNewAt("!ES_TechSupport_Popup",100,100, 1+4+128);
+END
+
+FUNCTION ES_ShowAOLLegend(STRING sType = "LV")
+	WinNewAt("!ES_AOL_Legend_" + sType,100,100, 1+4+128);
+END
+
+FUNCTION ES_ShowAlarmLegend()
+	WinNewAt("!ES_Alarm_Legend",100,100, 1+4+128);
+END
+
+FUNCTION ES_ShowTagViewer(STRING spProject = "", STRING spCluster = "", STRING spIODevName = "")
+	//IF GetPriv(8, 0) THEN
+		//TagViewer("W", spProject, spCluster, spIODevName);
+	//ELSE
+		//TagViewer("RO", spProject, spCluster, spIODevName);
+	//END
+END
+
+FUNCTION ES_ShowTagDebug()
+	TagDebug();
+END
+
+FUNCTION ES_ShowGeneralComment(STRING sNewTitle = "Log Book" , STRING sCustomNameSuffix = "")
+	PLSPageDisplay("ES_General_Comments_" + ES_GetScreenSize() + ES_GetCustomName(sCustomNameSuffix));
+	ES_DspSetWinTitle(sNewTitle);
+END
+
+FUNCTION ES_ShowDeviceStatus(STRING sNewTitle = "Device Status" , STRING sCustomNameSuffix = "")
+	PLSPageDisplay("ES_DeviceControl_" + ES_GetScreenSize() + ES_GetCustomName(sCustomNameSuffix));
+	ES_DspSetWinTitle(sNewTitle);
+END
+
+//==============================================================================================================
+
+STRING FUNCTION ES_GetScreenSize()
+	RETURN PageInfo(21) + "x" + PageInfo(22);
+END
+
+STRING FUNCTION ES_GetCustomName(STRING sCustomNameSuffix = "")
+	STRING sNewCustomNameSuffix;
+	
+	IF sCustomNameSuffix = "" THEN
+		sNewCustomNameSuffix = ParameterGet("Page", "CustomNameSuffix", "");
+	ELSE
+		sNewCustomNameSuffix = sCustomNameSuffix;
+	END
+	
+	IF sNewCustomNameSuffix <> "" THEN
+		RETURN "_" + sNewCustomNameSuffix;
+	ELSE
+		RETURN "";
+	END
+END
+
+//==============================================================================================================
+
+FUNCTION ES_DspShowAlarm(INT nType = 0, STRING sPage = "", STRING sNewTitle = "")
+
+	ErrSet(1);
+
+	STRING	sTitle		= StrToLocalText("@(Alarm Page)");
+	INT		nWin;
+	STRING	sDspPage	= sPage;
+
+	IF sNewTitle = "" THEN
+		SELECT CASE nType
+		CASE 0
+			sTitle = StrToLocalText("@(Active Alarms)");
+		CASE 1
+			sTitle = StrToLocalText("@(Unacknowledged Alarms)");
+		CASE 2
+			sTitle = StrToLocalText("@(Acknowledged Alarms)");
+		CASE 3
+			sTitle = StrToLocalText("@(Disabled Alarms)");
+		CASE 4
+			sTitle = StrToLocalText("@(Configured Alarms)");
+		CASE 5
+			sTitle = StrToLocalText("@(System Alarms)");
+		CASE 6
+			sTitle = StrToLocalText("@(Unacknowledged System Alarms)");
+		CASE 7
+			sTitle = StrToLocalText("@(Acknowledged System Alarms)");
+		CASE 8
+			sTitle = StrToLocalText("@(Disabled System Alarms)");
+		CASE 9
+			sTitle = StrToLocalText("@(Configured System Alarms)");
+		CASE 10
+			sTitle = StrToLocalText("@(Alarm History)");
+		CASE 11
+			sTitle = StrToLocalText("@(On Alarms)");
+		CASE 12
+			sTitle = StrToLocalText("@(Off Alarms)");
+		CASE 13
+			sTitle = StrToLocalText("@(On System Alarms)");
+		CASE 14
+			sTitle = StrToLocalText("@(Off System Alarms)");
+		CASE 15
+			sTitle = StrToLocalText("@(Alarm History)");
+		END SELECT
+	ELSE
+		sTitle = StrToLocalText(sNewTitle);
+	END
+
+	// 12-Sep-08 Try to display a custom specified page, if failed show the PLS default alarm page
+	// 17-Sep-08 Fix some logical bug that if page doesn't exist, it won't fall back to the default alarm page
+	PLSAlmDspSetType(1, nType);
+	IF "" = sPage THEN
+		sDspPage = "PLSAlarm";
+		// 2-6-09 PageDisplay(sDspPage);
+		PLSPageDisplay(sDspPage);
+	ELSE IF (0 <> PLSPageDisplay(sPage)) AND ("PLSAlarm" <> sPage) THEN
+		sDspPage = "PLSAlarm";
+		// 2-6-09 PageDisplay(sDspPage);
+		PLSPageDisplay(sDspPage);
+	END END
+	
+	ES_DspSetWinTitle(sTitle);
+	// 12-Sep-08 Check if the optional parameter is also specified and remember it
+	IF "" <> sPage THEN
+		sPage = ",^"" + sPage + "^"";
+	END
+	PLSNavSetPageLastCommand("PLSDspShowAlarm", IntToStr(nType) + sPage, sTitle);
+END
+
+STRING FUNCTION ES_DspGetPageTitle()
+	// 21-Nov-08 GetWinTitle() doesn't work on web client, use the configured title instead or page str var 1 if on default PLS alarm page
+	STRING	sTitle = GetWinTitle();
+	IF (sTitle = "") THEN IF IsWebClient() THEN sTitle = PageGetStr(1); END END
+	IF (sTitle = "") THEN sTitle = PageInfo(2); END
+
+	// 22-Sep-08 suffix title with "Graphics Test Mode" if it's enabled
+	IF PLSGraphicsTestIsEnabled() THEN
+		//RETURN (sTitle + " - " + PLSGraphicsTestGetModeText());
+		RETURN (sTitle + " - Graphics Test Mode");
+	END
+	RETURN (sTitle);
+END
+
+FUNCTION ES_DspSetWinTitle(STRING sNewTitle)
+	WinTitle(sNewTitle);
+	IF IsWebClient() THEN PageSetStr(1, sNewTitle); END
+END
+
+
+FUNCTION ES_ShowLogo()
+	INT AN;
+	STRING sLogo;
+	STRING sCustomNameSuffix = ParameterGet("Page", "CustomNameSuffix", "");
+	INT pgScan = PageInfo(7);
+	
+	IF ((pgScan MOD 5) = 0) THEN
+		AN = DspGetAnCur();
+		//Logo must be in a 93x93 canvas.
+		IF sCustomNameSuffix = "" THEN
+			sLogo = ParameterGet("Graphics", "Logo", "ES_Icons.SE_Logo");
+		ELSE
+			sLogo = ParameterGet("Graphics", "Logo", "ES_Icons.SE_Logo_txp");
+		END
+		DspSym(AN, sLogo, 1);
+	END
+END
+
+

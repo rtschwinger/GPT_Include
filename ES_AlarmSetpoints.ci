@@ -1,0 +1,833 @@
+//*******This is PLSAlarmSetPoints Cicode reworked to utilize the ES_AlarmSetpoints pages 
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+///				Alarm Setpoints
+///
+///				
+/// </summary>
+//  ----------------------------------------------------------------------------------------------
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+///				Module Variables.
+/// </summary>
+/// <remarks>
+///				Alarm Tags:			The handle to the alarm session.
+///				PointAlmSP:			The pointer position in the alarm session.
+///				Total:				The total number of alarms in the alarm session.
+/// </remarks>
+//  ----------------------------------------------------------------------------------------------
+
+MODULE	INT		mnPLSAlmSP_AlarmTags[25]	= -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1;	// Browse session handle
+MODULE	INT		mnPLSAlmSP_Index[25];					// index of 1st item in current page
+MODULE	INT		mnPLSAlmSP_IndexNext[25];				// index of 1st itme in next page
+MODULE	INT		mnPLSAlmSP_IndexItems[25];				// number of items shown in current page
+MODULE	STRING	msPLSAlmSP_EquipFilter[25];				// Equipment filter value
+MODULE	STRING	msPLSAlmSP_AlarmTypeFilter[25];			// AlarmType filter value
+MODULE 	INT		mbPLSAlmSP_EditInProgress[25];
+
+MODULE	INT		mbPopupOpenFlag;						//1 = popup is opened; used to prevent multiple instances.
+
+MODULE	INT		mbAlmSPExist[25];						//1 = Al least one alarm exist for specified criteria
+//Constants
+MODULE INT WINDOW_OPEN_FAILED = -1; //WinNew or WinNewAt failed
+MODULE INT DEFAULT_WINDOW_MODE = 901;	//Window mode used by default : 1(Page child window)/4(No resize window)/128(Unique window)/256(Show all window)/512(Unique super genie)
+
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+/// 			Called to initialize the alarm session, retrieve the first 32 alarm records,
+///				make the necessary supergenie associations, and call the PLSAlarmSetpoints page.
+/// </summary>
+/// <param name="sEquipFilter">
+///				The filter to apply to the alarm session. Defaults to "" for all alarms.
+/// </param>
+/// <param name="sAlarmTypeFilter">
+///				The filter to apply to the alarm session. Defaults to "" for all alarms.
+/// </param>
+/// <param name="sClusters">
+///				The clusters to select in the alarm session. Defaults to "" for all clusters.
+/// </param>
+//  ----------------------------------------------------------------------------------------------
+
+INT
+FUNCTION ES_AlmSPDspPage(STRING sEquipFilter = "", STRING sAlarmTypeFilter = "", STRING sCluster = "", INT iAlarmsPerPage = 32)
+	INT			iPage = WinNumber();
+	STRING		sParams = "^"" + sEquipFilter + "^",^"" + sAlarmTypeFilter + "^",^"" + sCluster + "^"";
+
+	IF (mnPLSAlmSP_AlarmTags[iPage] <> -1) THEN AlmTagsClose(mnPLSAlmSP_AlarmTags[iPage]); END
+
+	msPLSAlmSP_EquipFilter[iPage] = sEquipFilter;
+	IF (StrLength(sEquipFilter) > 0) THEN
+		sEquipFilter = "CUSTOM1=" + sEquipFilter;
+	END
+
+	// 22-Oct-08 alarm type filter support need to be done by Cicode, looks like AlmTagsOpen() only works on one filter only
+	msPLSAlmSP_AlarmTypeFilter[iPage] = sAlarmTypeFilter;
+
+	mnPLSAlmSP_AlarmTags[iPage] = AlmTagsOpen(sEquipFilter, "", sCluster);
+
+	AlmTagsFirst(mnPLSAlmSP_AlarmTags[iPage]);							
+	mnPLSAlmSP_Index[iPage] = 0;
+
+	_ES_AlmSPAssignPageTags(0, iAlarmsPerPage);
+
+	// 23-Oct-08 Check if any alarms are found before displaying the page
+	IF mnPLSAlmSP_IndexItems[iPage] > 0 THEN
+		// 17-Dec-08 Remember the command in page stack
+		// 2-6-09 - //PageDisplay("PLSAlarmSetpoints")
+		IF (PLSPageDisplay("ES_AlarmSetpoints_" + ES_GetScreenSize()) = 0) THEN
+			PLSNavSetPageLastCommand("PLSAlmSPDspPage", sParams);
+		END
+	ELSE
+		Message(StrToLocalText("@(Unable to open page)"), StrToLocalText("@(No alarms are found in the specified group.)"), 64);
+	END
+
+	RETURN (0);
+END
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+/// 			Called to scroll up one full page on the open alarm setpoints page.
+/// </summary>
+//  ----------------------------------------------------------------------------------------------
+
+INT
+FUNCTION ES_AlmSPScrollUp(INT iAlarmsPerPage = 32)
+
+	INT			y;
+	INT			iPage = WinNumber();
+
+	IF (mnPLSAlmSP_Index[iPage] = 0) THEN						
+		RETURN	100;
+	ELSE
+		mnPLSAlmSP_Index[iPage] = mnPLSAlmSP_Index[iPage] - iAlarmsPerPage;
+
+		// 23-Oct-08 go back number of times in current page + another full page
+		y = 0;
+		WHILE y < (mnPLSAlmSP_IndexItems[iPage] + iAlarmsPerPage) DO
+			// 30-Oct-08 Only count the matching item when winding back
+			IF _ES_AlmSPAlarmTypeFilter(mnPLSAlmSP_AlarmTags[iPage], msPLSAlmSP_AlarmTypeFilter[iPage]) THEN
+				y = y + 1;
+			END
+			AlmTagsPrev(mnPLSAlmSP_AlarmTags[iPage]);
+		END
+
+		_ES_AlmSPAssignPageTags(0, iAlarmsPerPage);
+		
+		// 2-6-09 _PageDisplay("PLSAlarmSetpoints");
+		PLSPageDisplay("ES_AlarmSetpoints_" + ES_GetScreenSize());
+
+		RETURN (0);
+	END		
+END
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+/// 			Called to scroll down one full page on the open alarm setpoints page.
+/// </summary>
+//  ----------------------------------------------------------------------------------------------
+
+INT
+FUNCTION ES_AlmSPScrollDown(INT iAlarmsPerPage = 32)
+	INT			iPage = WinNumber();
+	INT			y;
+
+	// 22-Oct-08 Do not scroll forward if the last record is alreay on screen
+	//IF (mnPLSAlmSP_Index[iPage] = mnPLSAlmSP_Total) THEN			
+	IF (mnPLSAlmSP_Index[iPage] >= mnPLSAlmSP_IndexNext[iPage]) THEN			
+		RETURN 100;
+	ELSE
+		mnPLSAlmSP_Index[iPage] = mnPLSAlmSP_Index[iPage] + iAlarmsPerPage;
+
+		_ES_AlmSPAssignPageTags(0, iAlarmsPerPage);
+
+		// 30-Oct-08 Check if any items are returned, rewind
+		IF mnPLSAlmSP_IndexItems[iPage] <= 0 THEN
+			mnPLSAlmSP_Index[iPage] = mnPLSAlmSP_Index[iPage] - iAlarmsPerPage;		
+			RETURN 100;
+		END
+
+		// 2-6-09 _PageDisplay("PLSAlarmSetpoints");
+		PLSPageDisplay("ES_AlarmSetpoints_" + ES_GetScreenSize());
+
+		RETURN 0;
+		
+	END
+END
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+/// 			Called to scroll to the end of the alarm list on the open alarm setpoints page.
+/// </summary>
+//  ----------------------------------------------------------------------------------------------
+
+FUNCTION ES_AlmSPEnd(INT iAlarmsPerPage = 32)
+
+	INT			nIndex;
+	STRING		sEquip;
+	INT			iPage = WinNumber();
+
+	AlmTagsFirst(mnPLSAlmSP_AlarmTags[iPage]);
+	mnPLSAlmSP_Index[iPage] = 0;
+
+	// 23-Oct-8 Browse to the end of the list
+	sEquip = AlmTagsGetField(mnPLSAlmSP_AlarmTags[iPage], "CUSTOM1");
+	WHILE (sEquip <> "") DO
+		_ES_AlmSPAssignPageTags(0, iAlarmsPerPage);
+		IF (mnPLSAlmSP_Index[iPage] < mnPLSAlmSP_IndexNext[iPage]) THEN mnPLSAlmSP_Index[iPage] = mnPLSAlmSP_Index[iPage] + iAlarmsPerPage; END
+		sEquip = AlmTagsGetField(mnPLSAlmSP_AlarmTags[iPage], "CUSTOM1");
+	END
+
+	// 23-Oct-08 Move up the number of items in the last page
+	nIndex = 0;
+	WHILE nIndex < mnPLSAlmSP_IndexItems[iPage] DO
+		// 30-Oct-08 Only count the matching item when winding back
+		IF _ES_AlmSPAlarmTypeFilter(mnPLSAlmSP_AlarmTags[iPage], msPLSAlmSP_AlarmTypeFilter[iPage]) THEN
+			nIndex = nIndex + 1;
+		END
+		AlmTagsPrev(mnPLSAlmSP_AlarmTags[iPage]);
+	END
+	_ES_AlmSPAssignPageTags(0, iAlarmsPerPage);
+
+	// 2-6-09 _PageDisplay("PLSAlarmSetpoints");
+	PLSPageDisplay("ES_AlarmSetpoints_" + ES_GetScreenSize());
+
+END
+
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+/// 			Browse the alarm tags and associate alarm tags to the super genie page
+/// </summary>
+//  ----------------------------------------------------------------------------------------------
+
+INT FUNCTION ES_AlmSPPageNo(INT iAlarmsPerPage = 32, INT bIsPopup = 0)
+	INT			iPage;
+
+	IF NOT bIsPopup THEN
+		iPage = WinNumber();
+	END
+	
+	RETURN (mnPLSAlmSP_Index[iPage]/iAlarmsPerPage + 1);
+END
+
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+/// 			Browse the alarm tags and associate alarm tags to the super genie page
+/// </summary>
+//  ----------------------------------------------------------------------------------------------
+
+FUNCTION _ES_AlmSPAssignPageTags(INT bBrowseOnly=0, INT iALarmsPerPage = 32, INT bIsPopup = 0)
+
+	STRING		sAlarmString;
+	STRING		sAlarmType;
+	STRING		sAlarmTag;
+	STRING		sAlarmName;
+	STRING		sAlarmDesc;
+	STRING		sNameDesc;
+	STRING		sEquip;
+	STRING		sCluster;
+	INT			nIndex;
+	INT			iPage;
+
+	IF NOT bIsPopup THEN
+		iPage = WinNumber();
+	END
+	
+	// 23-Oct-08 Must read one of the field to check if at the end of the browse
+	sEquip     = AlmTagsGetField(mnPLSAlmSP_AlarmTags[iPage], "CUSTOM1");
+	nIndex = 0;
+	WHILE (StrLength(sEquip) > 0) AND (nIndex < iAlarmsPerPage) DO
+
+		sAlarmTag  = AlmTagsGetField(mnPLSAlmSP_AlarmTags[iPage], "TAG");
+		sAlarmName = AlmTagsGetField(mnPLSAlmSP_AlarmTags[iPage], "NAME");
+		sAlarmDesc = AlmTagsGetField(mnPLSAlmSP_AlarmTags[iPage], "DESC");
+		sAlarmType = AlmTagsGetField(mnPLSAlmSP_AlarmTags[iPage], "ALARMTYPE");
+
+		// 3-Nov-08 Add cluster to the tag name
+		sCluster = AlmTagsGetField(mnPLSAlmSP_AlarmTags[iPage], "CLUSTER");
+		IF (StrLength(sCluster) > 0) THEN
+			sAlarmTag = sCluster + "." + sAlarmTag;
+		END
+
+		// 22-Oct-08 alarm type filter
+		IF _ES_AlmSPAlarmTypeFilter(mnPLSAlmSP_AlarmTags[iPage], msPLSAlmSP_AlarmTypeFilter[iPage]) THEN
+				
+			// 23-Oct-08 Allow option to do tag browsing only
+			IF (0 = bBrowseOnly) THEN		
+				sNameDesc = sAlarmName;
+				IF (StrLength(sNameDesc) = 0) THEN sNameDesc = sAlarmTag; END
+
+				//Ass(-2, 0000+nIndex, "'"+sEquip+" "+sNameDesc+"'", 0);
+				Ass(-2, 0000+nIndex, "'"+sNameDesc+"'", 0);
+				Ass(-2, 0100+nIndex, sAlarmTag+".Disabled", 0);
+				
+				// 12-Sep-09 do not associate analogue alarm properties if it's not analogue alarm to speed up performance
+				IF StrSearch(0, AlmTagsGetField(mnPLSAlmSP_AlarmTags[iPage], "ALARMTYPE"), "Analog") > -1 THEN
+					Ass(-2, 0200+nIndex, sAlarmTag+".HighHigh", 0);
+					Ass(-2, 0300+nIndex, sAlarmTag+".High", 0);
+					Ass(-2, 0400+nIndex, sAlarmTag+".Low", 0);
+					Ass(-2, 0500+nIndex, sAlarmTag+".LowLow", 0);
+					Ass(-2, 0600+nIndex, sAlarmTag+".Deadband", 0);
+					//Ass(-2, 0700+nIndex, sAlarmTag+".Deviation", 0);	// 17-Dec-08 Removed form page upon SE request
+					//Ass(-2, 0800+nIndex, sAlarmTag+".Rate", 0);		// 17-Dec-08 Removed from page upon SE request
+					Ass(-2, 0900+nIndex, sAlarmTag+".HHDelay", 0);
+					Ass(-2, 1000+nIndex, sAlarmTag+".HDelay", 0);
+					Ass(-2, 1100+nIndex, sAlarmTag+".LDelay", 0);
+					Ass(-2, 1200+nIndex, sAlarmTag+".LLDelay", 0);
+					Ass(-2, 1300+nIndex, sAlarmTag, 0);					// 17-Dec-08 Changed to show tag value instead of .DevDelay alarm property
+				END
+			END
+			
+			nIndex = nIndex + 1;
+		END
+
+		AlmTagsNext(mnPLSAlmSP_AlarmTags[iPage]);
+		sEquip     = AlmTagsGetField(mnPLSAlmSP_AlarmTags[iPage], "CUSTOM1");
+	END
+
+	// 23-Oct-08 remember number of items in current page 
+	mnPLSAlmSP_IndexItems[iPage] = nIndex;
+	// 22-Oct-08 check if next page is possible
+	IF (nIndex >= iAlarmsPerPage) AND (StrLength(sEquip) > 0) THEN
+		mnPLSAlmSP_IndexNext[iPage] = mnPLSAlmSP_Index[iPage] + IAlarmsPerPage;
+	ELSE
+		mnPLSAlmSP_IndexNext[iPage] = -1;
+	END
+END
+
+INT FUNCTION _ES_AlmSPAlarmTypeFilter(INT nSession, STRING sFilter)
+	INT		bMatch = 0;
+	STRING	sFieldValue;
+
+	sFieldValue = AlmTagsGetField(nSession, "AlarmType");
+	IF (sFilter = "") THEN RETURN 1; END								// All alarms
+	IF (sFilter = sFieldValue) THEN RETURN 1; END						// Exact match
+	SELECT CASE sFilter
+	CASE "Analog"
+		IF StrSearch(0, sFieldValue, sFilter) > -1 THEN RETURN 1; END	// *Analog*
+	CASE "Digital"
+		IF StrSearch(0, sFieldValue, "Analog") < 0 THEN RETURN 1; END	// non *Analog*
+	END SELECT
+	RETURN 0;
+END
+
+
+STRING FUNCTION	ES_AlmSPGetEquipFilter(INT bIsPopup = 0)
+	INT	iPage;
+	
+	IF NOT bIsPopup THEN
+		iPage = WinNumber();
+	END
+
+	RETURN (msPLSAlmSP_EquipFilter[iPage]);	
+END
+
+STRING FUNCTION	ES_AlmSPGetAlarmTypeFilter(INT bIsPopup = 0)
+	INT	iPage;
+
+	IF NOT bIsPopup THEN
+		iPage = WinNumber();
+	END
+
+	RETURN (msPLSAlmSP_AlarmTypeFilter[iPage]);
+END
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+/// 			Called from the alarm setpoint display genie on the open alarm setpoints page
+//				and presents a number pad to the user to allow a value change.
+/// </summary>
+/// <param name="iAss">
+///				The association number for the displayed value in the supergenie.
+/// </param>
+/// <param name="sDesc">
+///				The description of the alarm tag.
+/// </param>
+/// <param name="iTest">
+///				The bit for testing the new value against a min and max range.  Use 0 for no test,
+///				and 1 to perform test.  Defaults to 0 for no test.
+/// </param>
+/// <remarks>
+///				Min and Max range are unsupported in AssinfoEx for alarm properties used as tags.
+///				iTest argument should be left as "0" for these.
+///				Returns 0 when successful, -1 if user chooses the cancel button (or fails security check)
+///				on the confirmation form, and 299 if the value is out of range and test option is true.
+///
+///				Blocking function calls are being used in this function, do not call this function
+///				on foreground task, such as the Expression field on graphics animations. However, it
+///				is safe to call this on a Keyboard / Touch Input command properties of graphics objects.
+/// </remarks>
+//  ----------------------------------------------------------------------------------------------
+
+INT
+FUNCTION ES_ChangeValueSG(INT iAss, STRING sDesc, INT iTest=0)
+
+	REAL 		rMin 			= StrToReal(AssInfoEx(iAss, 4, 0));
+	REAL 		rMax 			= StrToReal(AssInfoEx(iAss, 5, 0));
+	STRING		sTag			= AssInfoEx(iAss, 18);			// 7-Nov-08 use full tag name, read from cache is OK as tag name must be resolved beforehand
+	STRING		sTag1			= AssInfoEx(iAss, 0);			
+	INT			iWidth			= AssInfoEx(iAss, 6, 0);
+	INT			iDecimals		= AssInfoEx(iAss, 7, 0);
+	STRING		sComment 		= AssInfoEx(iAss, 16);			// read from cache is OK as it'd already displayed on screen
+	STRING		sUnit			= AssInfoEx(iAss, 1, 0);
+	STRING		sTagExt, sParam;
+	STRING		sMessage, sEvtMsg;
+	REAL		rCurrentValue;
+	REAL		rEngRange;
+	REAL		rInpValue;
+	STRING 		sHighValue1		= "339999995214436010000000000000000000000.00";
+	STRING		sLowValue1		= "-339999995214436010000000000000000000000.00";
+	STRING 		sHighValue2		= "339999995214436010000000000000000000000";
+	STRING		sLowValue2		= "-339999995214436010000000000000000000000";
+	REAL		rHighValue		= 3.39E+38;
+	REAL		rLowValue		= -3.39E+38;
+	STRING 		sInpValue;
+	STRING 		sCurrentValue;
+	STRING		sNewValue;
+	INT			iPage			= WinNumber();
+	INT 		x,y;
+	STRING 		sName, sCluster	= "";
+	
+	//prevent multiple popups
+	IF mbPLSAlmSP_EditInProgress[iPage] = TRUE THEN
+		RETURN (-1);		//already editing something here
+	END
+		
+	mbPLSAlmSP_EditInProgress[iPage] = TRUE;
+	
+	//security check
+	IF (PLSSecGetPriv(PL_Sec_AlmConfig) = 0) THEN
+		Message(StrToLocalText("@(Error)"), StrToLocalText("@(You must be an authorized user to edit this alarm.)"), 0+16);
+		mbPLSAlmSP_EditInProgress[iPage] = FALSE;
+		RETURN (-1);
+	END
+
+	rCurrentValue = StrToReal(TagRead(sTag));
+	//sCurrentValue = RealToStr(rCurrentValue, iWidth, iDecimals)
+	//IF sCurrentValue = sHighValue1 OR sCurrentValue = sLowValue1 OR sCurrentValue = sHighValue2 OR sCurrentValue = sLowValue2 THEN
+	//	sCurrentValue = "";
+	//END
+	IF rCurrentValue > rHighValue OR rCurrentValue < rLowValue THEN
+		sCurrentValue = "";
+	ELSE
+		sCurrentValue = RealToStr(rCurrentValue, iWidth, iDecimals)
+	END
+	
+	sTagExt = StrRight(sTag1, StrLength(sTag1) - StrSearch(0, sTag1, ".") - 1);
+	SELECT CASE sTagExt
+		CASE "HighHigh"		sParam = "High High Threshold";
+		CASE "High"			sParam = "High Threshold";
+		CASE "Low"			sParam = "Low Threshold";
+		CASE "LowLow"		sParam = "Low Low Threshold";
+		CASE "HHDelay"		sParam = "High High Delay";
+		CASE "HDelay"		sParam = "High Delay";
+		CASE "LDelay"		sParam = "Low Delay";
+		CASE "LLDelay"		sParam = "Low Low Delay";
+		CASE ELSE			sParam = sTagExt;
+	END SELECT
+	
+	//sInpValue = FormNumpad(sTag, sCurrentValue, 0+4+16);
+	sInpValue = FormNumpad(sParam, sCurrentValue, 0+4+16);
+	rInpValue = StrToReal(sInpValue);
+	sNewValue = StrTrim(RealToStr(rInpValue,iWidth,iDecimals));
+	
+	//no change, just return
+	IF rCurrentValue = rInpValue OR IsError() = 299 OR (sInpValue = "" AND sCurrentValue = "") THEN 
+		mbPLSAlmSP_EditInProgress[iPage] = FALSE;
+		RETURN (-1);
+	END
+	
+	
+	
+	//sMessage = StrToLocalText("@(Change value)") + ":^n" +
+	//			sTag + " [" + sCurrentValue + "] -> [" + 
+	//					RealToStr(rInpValue,iWidth,iDecimals) +"]";
+
+	sEvtMsg = "HMI Action - Alarm " + sDesc + " " + sParam + " Limit ";
+	IF sCurrentValue = "" THEN
+		sMessage = "Set '" + sDesc + "' " + sParam + " to " + sNewValue;
+		sEvtMsg = sEvtMsg + "Set to " + sNewValue;
+	ELSE
+		sMessage = "Change '" + sDesc + "' " + sParam + " from " + StrTrim(sCurrentValue) + " to " + sNewValue;
+		sEvtMsg = sEvtMsg + "Change from " + StrTrim(sCurrentValue) + " to " + sNewValue;
+	END
+
+	IF Message(StrToLocalText("@(Confirm)"), sMessage + "?", 1+32) <> 0 THEN
+		mbPLSAlmSP_EditInProgress[iPage] = FALSE;
+		RETURN (-1);
+	END
+	
+	x = StrSearch(0, sTag, ".") + 1;		//extract name
+	y = StrSearch(0, sTag, "\") - x;
+	sName = StrMid(sTag, x, y);	
+
+	IF (x > 0) THEN sCluster = StrLeft(sTag, x - 1); END			// 23-Dec-08 extract cluster name
+	
+	x = StrSearch(0, sDesc, " ") + 1;		//extract name
+	sDesc = StrRight(sDesc, StrLength(sDesc) - x);
+
+	IF (iTest = 1) THEN
+		IF ((rInpValue >= rMin) AND (rInpValue <= rMax)) THEN
+			PLSRedundantTagWrite(sTag, rInpValue, 0, 0, sCluster, "Alarm");	// 23-Dec-08 TagWrite on both redundant alarm servers
+		ELSE
+			Message(StrToLocalText("@(Error)"), StrToLocalText("@(The value is outside the permitted range)\n") + sNewValue + " " +
+				"["+StrToLocalText("@(Min, Max)")+"] = ["+RealToStr(rMin,iWidth,iDecimals)+","+RealToStr(rMax,iWidth,iDecimals)+"] " + sUnit, 48);
+			mbPLSAlmSP_EditInProgress[iPage] = FALSE;
+			RETURN (299);
+		END
+	ELSE
+		PLSRedundantTagWrite(sTag, rInpValue, 0, 0, sCluster, "Alarm");	// 23-Dec-08 TagWrite on both redundant alarm servers
+	END
+	 	
+	//16-Oct-08 Log setpoint changes
+	//18-Nov-08 Log more detail
+	sMessage = "[" + sCurrentValue + "] -> [" + RealToStr(rInpValue,iWidth,iDecimals) +"]";
+	//PLSAlmDspEventAdd(0, 0, 1,  StrToLocalText("@"+"(" + sDesc + ")") + " " + StrToLocalText("@(Limit Changed)") + ": " + sMessage, "", StrToLocalText("@(Configured)"), sName);
+	//PLSAlmDspEventAdd(StrToLocalText("@"+"(" + sDesc + ")") + " " + StrToLocalText("@(Limit Changed)") + ": " + sMessage, sTag, "");
+	//PLSAlmDspEventAdd(StrToLocalText("@"+"(" + sDesc + ")") + " " + StrToLocalText("@(Limit Changed)") + ": " + sMessage);
+	PLSAlmDspEventAdd(sEvtMsg);
+	
+	mbPLSAlmSP_EditInProgress[iPage] = FALSE;
+	RETURN (0);
+END
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+/// 			Called from the alarm setpoint display genie on the open alarm setpoints page
+///				and presents a confirmation form to the user for the disabling or enabling 
+///				of the selected alarm.
+/// </summary>
+/// <param name="iAss">
+///				The association number for the displayed value in the supergenie.
+/// </param>
+/// <param name="sDesc">
+///				The description of the alarm tag.
+/// </param>
+/// <remarks>
+///				Returns 0 when successful, -1 if user chooses the cancel button on the
+///				confirmation form (or fails security check).
+/// </remarks>
+//  ----------------------------------------------------------------------------------------------
+
+INT
+FUNCTION ES_AlmDisableSG(INT iAss, STRING sDesc)
+
+	STRING		sTag		= AssInfoEx(iAss, 18);			// 7-Nov-08 user full tag name
+	STRING		sName;
+	STRING		sState;
+	INT			x;
+	INT			y;
+	INT			iPage		= WinNumber();
+	STRING		sAlarmTag;
+	STRING		sCluster	= "";
+
+	//prevent multiple popups
+	IF mbPLSAlmSP_EditInProgress[iPage] = TRUE THEN
+		RETURN (-1);		//already editing something here
+	END
+		
+	mbPLSAlmSP_EditInProgress[iPage] = TRUE;
+
+	//security check
+	IF (PLSSecGetPriv(PL_Sec_AlmConfig) = 0) THEN
+		Message(StrToLocalText("@(Error)"), StrToLocalText("@(You must be an authorized user to edit this alarm.)"), 0+16);
+		mbPLSAlmSP_EditInProgress[iPage] = FALSE;
+		RETURN (-1);
+	END
+
+	x = StrSearch(0, sTag, ".") + 1;		//extract name
+	y = StrSearch(0, sTag, "\") - x;
+	sName = StrMid(sTag, x, y);
+
+	IF (x > 0) THEN sCluster = StrLeft(sTag, x - 1); END			// 23-Dec-08 extract cluster name
+
+	y = StrSearch(x, sTag, ".") - x;		// 18-Dec-08 extract alarm tag name
+	sAlarmTag = StrMid(sTag, x, y);
+	
+	//x = StrSearch(0, sDesc, " ") + 1;		//extract name
+	//sDesc = StrMid(sDesc, x, 99);
+
+	sState = TagRead(sTag);
+
+	IF (sState = "0") THEN
+		IF (Message(StrToLocalText("@(Confirm)"), StrToLocalText("@(Disable)") + " " + sDesc + " ?", 1+32) = 0) THEN
+			// 19-Dec-08 Log alarm Enable event directly to alarm summary before taking action
+			//PLSAlmDspEventAdd(0, 0, 2, sAlarmTag, "", "DISABLE", sName);
+			//PLSAlmDspEventAdd("Disable", sAlarmTag, sName);
+			PLSAlmDspEventAdd("HMI Action - Disable Alarm " + sDesc);
+			SleepMS(500);
+			PLSRedundantTagWrite(sTag, "1", 0, 0, sCluster, "Alarm");	// 23-Dec-08 TagWrite on both redundant alarm servers
+		ELSE	
+			mbPLSAlmSP_EditInProgress[iPage] = FALSE;
+			RETURN (-1);
+		END
+	ELSE
+		IF (Message(StrToLocalText("@(Confirm)"), StrToLocalText("@(Enable)") + " " + sDesc + " ?", 1+32) = 0) THEN
+			// 19-Dec-08 Log alarm Enable event directly to alarm summary before taking action
+			//PLSAlmDspEventAdd(0, 0, 2, sAlarmTag, "", "ENABLE", sName);
+			//PLSAlmDspEventAdd("Enable", sAlarmTag, sName);
+			PLSAlmDspEventAdd("HMI Action - Enable Alarm " + sDesc);
+			SleepMS(500);
+			PLSRedundantTagWrite(sTag, "0", 0, 0, sCluster, "Alarm");	// 23-Dec-08 TagWrite on both redundant alarm servers
+		ELSE
+			mbPLSAlmSP_EditInProgress[iPage] = FALSE;
+			RETURN (-1);
+		END
+	END
+	mbPLSAlmSP_EditInProgress[iPage] = FALSE;
+	RETURN (0);
+END
+
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+/// 			Called to initialize the alarm session, retrieve the first 32 alarm records,
+///				make the necessary supergenie associations, and call the PLSAlarmSetpoints page.
+/// </summary>
+/// <param name="sEquipFilter">
+///				The filter to apply to the alarm session. Defaults to "" for all alarms.
+/// </param>
+/// <param name="sAlarmTypeFilter">
+///				The filter to apply to the alarm session. Defaults to "" for all alarms.
+/// </param>
+/// <param name="sClusters">
+///				The clusters to select in the alarm session. Defaults to "" for all clusters.
+/// </param>
+//  ----------------------------------------------------------------------------------------------
+
+INT
+FUNCTION ES_AlmSPDspPopup(STRING sEquipFilter = "", STRING sAlarmTypeFilter = "", STRING sCluster = "", INT iAlarmsPerPage = 10, INT bReDisplay = 0)
+	INT iMouseX;
+	INT iMouseY;
+	INT hWin;
+	INT			iPage;
+	STRING		sParams = "^"" + sEquipFilter + "^",^"" + sAlarmTypeFilter + "^",^"" + sCluster + "^"";
+
+	IF mbPopupOpenFlag AND NOT bReDisplay THEN
+		Message(StrToLocalText("@(Unable to open page)"), StrToLocalText("@(Please close existing popup first.)"), 64);
+		RETURN 1;				//Only one popup instance may be open at a time
+	ELSE
+		mbPopupOpenFlag = 1;
+	END
+	
+	IF (mnPLSAlmSP_AlarmTags[iPage] <> -1) THEN AlmTagsClose(mnPLSAlmSP_AlarmTags[iPage]); END
+
+	msPLSAlmSP_EquipFilter[iPage] = sEquipFilter;
+	IF (StrLength(sEquipFilter) > 0) THEN
+		sEquipFilter = "CUSTOM1=" + sEquipFilter;
+	END
+
+	// 22-Oct-08 alarm type filter support need to be done by Cicode, looks like AlmTagsOpen() only works on one filter only
+	msPLSAlmSP_AlarmTypeFilter[iPage] = sAlarmTypeFilter;
+
+	mnPLSAlmSP_AlarmTags[iPage] = AlmTagsOpen(sEquipFilter, "", sCluster);
+
+	AlmTagsFirst(mnPLSAlmSP_AlarmTags[iPage]);							
+	mnPLSAlmSP_Index[iPage] = 0;
+
+	_ES_AlmSPAssignPageTags(0, iAlarmsPerPage, 1);
+
+	// 23-Oct-08 Check if any alarms are found before displaying the page
+	IF mnPLSAlmSP_IndexItems[iPage] > 0 THEN
+		// 17-Dec-08 Remember the command in page stack
+		// 2-6-09 - //PageDisplay("PLSAlarmSetpoints")
+		
+		//Get mouse position (Where popup will be displayed)
+		DspGetMouse(iMouseX , iMouseY); 
+
+		//Create popup window
+		hWin = ES_AlmSPShowPopup(bReDisplay);
+	
+	ELSE
+		Message(StrToLocalText("@(Unable to open page)"), StrToLocalText("@(No alarms are found in the specified group.)"), 64);
+		mbPopupOpenFlag = 0;
+	END
+
+	RETURN (0);
+END
+
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+/// 			Called to scroll up one full page on the open alarm setpoints page.
+/// </summary>
+//  ----------------------------------------------------------------------------------------------
+
+INT
+FUNCTION ES_AlmSPScrollUpPopup(INT iAlarmsPerPage = 10)
+
+	INT			y;
+	INT			iPage;
+
+	IF (mnPLSAlmSP_Index[iPage] = 0) THEN						
+		RETURN	100;
+	ELSE
+		mnPLSAlmSP_Index[iPage] = mnPLSAlmSP_Index[iPage] - iAlarmsPerPage;
+
+		// 23-Oct-08 go back number of times in current page + another full page
+		y = 0;
+		WHILE y < (mnPLSAlmSP_IndexItems[iPage] + iAlarmsPerPage) DO
+			// 30-Oct-08 Only count the matching item when winding back
+			IF _ES_AlmSPAlarmTypeFilter(mnPLSAlmSP_AlarmTags[iPage], msPLSAlmSP_AlarmTypeFilter[iPage]) THEN
+				y = y + 1;
+			END
+			AlmTagsPrev(mnPLSAlmSP_AlarmTags[iPage]);
+		END
+
+		_ES_AlmSPAssignPageTags(0, iAlarmsPerPage, 1);
+		
+		// 2-6-09 _PageDisplay("PLSAlarmSetpoints");
+		ES_AlmSPShowPopup(1);
+
+		RETURN (0);
+	END		
+END
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+/// 			Called to scroll down one full page on the open alarm setpoints page.
+/// </summary>
+//  ----------------------------------------------------------------------------------------------
+
+INT
+FUNCTION ES_AlmSPScrollDownPopup(INT iAlarmsPerPage = 10)
+	INT			iPage;
+	INT			y;
+
+	// 22-Oct-08 Do not scroll forward if the last record is alreay on screen
+	//IF (mnPLSAlmSP_Index[iPage] = mnPLSAlmSP_Total) THEN			
+	IF (mnPLSAlmSP_Index[iPage] >= mnPLSAlmSP_IndexNext[iPage]) THEN			
+		RETURN 100;
+	ELSE
+		mnPLSAlmSP_Index[iPage] = mnPLSAlmSP_Index[iPage] + iAlarmsPerPage;
+
+		_ES_AlmSPAssignPageTags(0, iAlarmsPerPage, 1);
+
+		// 30-Oct-08 Check if any items are returned, rewind
+		IF mnPLSAlmSP_IndexItems[iPage] <= 0 THEN
+			mnPLSAlmSP_Index[iPage] = mnPLSAlmSP_Index[iPage] - iAlarmsPerPage;		
+			RETURN 100;
+		END
+
+		// 2-6-09 _PageDisplay("PLSAlarmSetpoints");
+		ES_AlmSPShowPopup(1);
+
+		RETURN 0;
+		
+	END
+END
+
+//  ----------------------------------------------------------------------------------------------
+/// <summary>
+/// 			Called to scroll to the end of the alarm list on the open alarm setpoints page.
+/// </summary>
+//  ----------------------------------------------------------------------------------------------
+
+FUNCTION ES_AlmSPEndPopup(INT iAlarmsPerPage = 10)
+
+	INT			nIndex;
+	STRING		sEquip;
+	INT			iPage;	//always 0 for Popups
+
+	AlmTagsFirst(mnPLSAlmSP_AlarmTags[iPage]);
+	mnPLSAlmSP_Index[iPage] = 0;
+
+	// 23-Oct-8 Browse to the end of the list
+	sEquip = AlmTagsGetField(mnPLSAlmSP_AlarmTags[iPage], "CUSTOM1");
+	WHILE (sEquip <> "") DO
+		_ES_AlmSPAssignPageTags(0, iAlarmsPerPage, 1);
+		IF (mnPLSAlmSP_Index[iPage] < mnPLSAlmSP_IndexNext[iPage]) THEN mnPLSAlmSP_Index[iPage] = mnPLSAlmSP_Index[iPage] + iAlarmsPerPage; END
+		sEquip = AlmTagsGetField(mnPLSAlmSP_AlarmTags[iPage], "CUSTOM1");
+	END
+
+	// 23-Oct-08 Move up the number of items in the last page
+	nIndex = 0;
+	WHILE nIndex < mnPLSAlmSP_IndexItems[iPage] DO
+		// 30-Oct-08 Only count the matching item when winding back
+		IF _ES_AlmSPAlarmTypeFilter(mnPLSAlmSP_AlarmTags[iPage], msPLSAlmSP_AlarmTypeFilter[iPage]) THEN
+			nIndex = nIndex + 1;
+		END
+		AlmTagsPrev(mnPLSAlmSP_AlarmTags[iPage]);
+	END
+	_ES_AlmSPAssignPageTags(0, iAlarmsPerPage, 1);
+
+	// 2-6-09 _PageDisplay("PLSAlarmSetpoints");
+	ES_AlmSPShowPopup(1);
+
+END
+
+INT FUNCTION ES_AlmSPShowPopup(INT bReDisplay = 0)
+	INT nPosX, nPosY;
+	INT hWin;
+	
+	IF bReDisplay THEN
+		nPosX = StrToInt(PageInfo(14));
+		nPosY = StrToInt(PageInfo(15));
+		WinFree();
+		hWin = WinNewAt("!ES_AlarmSetpoints" , nPosX , nPosY , DEFAULT_WINDOW_MODE);
+	ELSE
+		DspGetMouse(nPosX, nPosY);
+		hWin = WinNewAt("!ES_AlarmSetpoints" , nPosX + StrToInt(PageInfo(14)) , nPosY + StrToInt(PageInfo(15)) , DEFAULT_WINDOW_MODE);
+	END
+
+	//Ensure popup window opened
+	IF (hWin <> WINDOW_OPEN_FAILED) THEN
+		//Set window title
+		//WinTitle("Alarm Setpoints Popup");
+		WinTitle(ES_AlmSPGetAlarmTypeFilter(1) + " Alarm Setup");
+	END
+
+	RETURN hWin;
+END
+
+//Used in the OnPageExit of the popup to reset the Open flag
+FUNCTION ES_AlmSPSetPopupFlag(INT bStatus)
+	mbPopupOpenFlag = bStatus;
+END
+
+
+//Used to check if any alarms exist for specified filter criteria
+//To be called on ES standard popup init code to enable/disable button to show SP popup (see next function ES_AlmSPGetExistFlag() ).
+FUNCTION ES_AlmSPSetExistFlag(STRING sEquipFilter = "", STRING sAlarmTypeFilter = "", STRING sCluster = "")
+	INT iMouseX;
+	INT iMouseY;
+	INT hWin;
+	INT			iPage = WinNumber();	//Win Number for ES standard popup
+	STRING		sParams = "^"" + sEquipFilter + "^",^"" + sAlarmTypeFilter + "^",^"" + sCluster + "^"";
+	INT 		iAlarmsPerPage = 1;		//Always 1, as we are chcking for existence of one alarm
+
+	IF (mnPLSAlmSP_AlarmTags[iPage] <> -1) THEN AlmTagsClose(mnPLSAlmSP_AlarmTags[iPage]); END
+
+	msPLSAlmSP_EquipFilter[iPage] = sEquipFilter;
+	IF (StrLength(sEquipFilter) > 0) THEN
+		sEquipFilter = "CUSTOM1=" + sEquipFilter;
+	END
+
+	// 22-Oct-08 alarm type filter support need to be done by Cicode, looks like AlmTagsOpen() only works on one filter only
+	msPLSAlmSP_AlarmTypeFilter[iPage] = sAlarmTypeFilter;
+
+	mnPLSAlmSP_AlarmTags[iPage] = AlmTagsOpen(sEquipFilter, "", sCluster);
+
+	AlmTagsFirst(mnPLSAlmSP_AlarmTags[iPage]);							
+	mnPLSAlmSP_Index[iPage] = 0;
+
+	_ES_AlmSPAssignPageTags(0, iAlarmsPerPage, 0);
+
+	// 23-Oct-08 Check if any alarms are found 
+	IF mnPLSAlmSP_IndexItems[iPage] > 0 THEN
+		mbAlmSPExist[iPage] = 1;
+	ELSE	
+		mbAlmSPExist[iPage] = 0;
+	END
+END
+
+INT
+FUNCTION ES_AlmSPGetExistFlag();
+	INT			iPage = WinNumber();	//Win Number for ES standard popup
+
+	RETURN mbAlmSPExist[iPage];
+END		

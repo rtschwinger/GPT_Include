@@ -1,0 +1,161 @@
+!Check Server Status
+FUNCTION ServerCheck()
+	INT iWEN2_PIO1,iWEN2_SIO2;
+	INT iWEN2_PIO3,iWEN2_SIO4;
+	INT iWEN2_PIO5,iWEN2_SIO6;
+	INT iWEN2_PIO7,iWEN2_SIO8;
+	INT iWEN2_PIO9,iWEN2_SIO10;
+	INT iWEN2_PIO11,iWEN2_SIO12;
+	INT iWEN2_PIO13,iWEN2_SIO14;
+	INT iWEN2_AIO1,iWEN2_AIO2;
+	INT iWEN2_P1,iWEN2_S1;
+	INT iWEN2_PS;
+	
+	iWEN2_PIO1=ServerIsOnline("WEN2_PC1_IO","WEN2");
+	iWEN2_SIO2=ServerIsOnline("WEN2_PC2_IO","WEN2");
+	iWEN2_PIO3=ServerIsOnline("WEN2_PC3_IO","WEN2");
+	iWEN2_SIO4=ServerIsOnline("WEN2_PC4_IO","WEN2");
+	iWEN2_PIO5=ServerIsOnline("WEN2_PC5_IO","WEN2");
+	iWEN2_SIO6=ServerIsOnline("WEN2_PC6_IO","WEN2");
+	iWEN2_PIO7=ServerIsOnline("WEN2_PC7_IO","WEN2");
+	iWEN2_SIO8=ServerIsOnline("WEN2_PC8_IO","WEN2");
+	iWEN2_PIO9=ServerIsOnline("WEN2_PC9_IO","WEN2");
+	iWEN2_SIO10=ServerIsOnline("WEN2_P10_IO","WEN2");
+	iWEN2_PIO11=ServerIsOnline("WEN2_P11_IO","WEN2");
+	iWEN2_SIO12=ServerIsOnline("WEN2_P12_IO","WEN2");
+	iWEN2_PIO13=ServerIsOnline("WEN2_P13_IO","WEN2");
+	iWEN2_SIO14=ServerIsOnline("WEN2_P14_IO","WEN2");
+	iWEN2_AIO1=ServerIsOnline("WEN2_PC1_ALM","WEN2");
+	iWEN2_AIO2=ServerIsOnline("WEN2_PC2_ALM","WEN2");
+
+	iWEN2_PS=ServerInfo("Alarm",2,"WEN2")
+	
+	IF iWEN2_PS THEN
+		iWEN2_P1 = 1;
+		iWEN2_S1 = 0;
+	ELSE
+		iWEN2_P1 = 0;
+		iWEN2_S1 = 1;
+	END
+	
+	IF NOT(iWEN2_PIO1=1) THEN
+		WEN2.WEN2_PC\Primary1\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Primary1\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_PIO3=1) THEN
+		WEN2.WEN2_PC\Primary3\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Primary3\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_PIO5=1) THEN
+		WEN2.WEN2_PC\Primary5\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Primary5\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_PIO7=1) THEN
+		WEN2.WEN2_PC\Primary7\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Primary7\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_PIO9=1) THEN
+		WEN2.WEN2_PC\Primary9\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Primary9\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_PIO11=1) THEN
+		WEN2.WEN2_PC\Primary11\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Primary11\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_PIO13=1) THEN
+		WEN2.WEN2_PC\Primary13\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Primary13\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_AIO1=1) THEN
+		WEN2.WEN2_PC\Alarm1\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Alarm1\Shutdown\stVal=0;
+	END
+	
+	WEN2.WEN2_PC\Primary1\Status\stVal = iWEN2_P1;
+
+	IF NOT(iWEN2_SIO2=1) THEN
+		WEN2.WEN2_PC\Standby2\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Standby2\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_SIO4=1) THEN
+		WEN2.WEN2_PC\Standby4\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Standby4\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_SIO6=1) THEN
+		WEN2.WEN2_PC\Standby6\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Standby6\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_SIO8=1) THEN
+		WEN2.WEN2_PC\Standby8\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Standby8\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_SIO8=1) THEN
+		WEN2.WEN2_PC\Standby10\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Standby10\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_SIO8=1) THEN
+		WEN2.WEN2_PC\Standby12\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Standby12\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_SIO14=1) THEN
+		WEN2.WEN2_PC\Standby14\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Standby14\Shutdown\stVal=0;
+	END
+	
+	IF NOT(iWEN2_AIO2=1) THEN
+		WEN2.WEN2_PC\Alarm2\Shutdown\stVal=1;
+	ELSE
+		WEN2.WEN2_PC\Alarm2\Shutdown\stVal=0;
+	END
+	
+	WEN2.WEN2_PC\Standby2\Status\stVal = iWEN2_S1;
+END
+
+FUNCTION ServerCheck_Display()
+	INT iWEN2_P1,iWEN2_S1;
+	INT iWEN2_PShut,iWEN2_SShut;
+
+	iWEN2_P1=WEN2.WEN2_PC\Primary1\Status\stVal;
+	iWEN2_S1=WEN2.WEN2_PC\Standby2\Status\stVal;
+	iWEN2_PShut= WEN2.WEN2_PC\Primary1\Shutdown\stVal OR WEN2.WEN2_PC\Primary3\Shutdown\stVal OR WEN2.WEN2_PC\Primary5\Shutdown\stVal 
+				OR WEN2.WEN2_PC\Primary7\Shutdown\stVal OR WEN2.WEN2_PC\Primary9\Shutdown\stVal OR WEN2.WEN2_PC\Primary11\Shutdown\stVal 
+				OR WEN2.WEN2_PC\Primary13\Shutdown\stVal OR WEN2.WEN2_PC\Alarm1\Shutdown\stVal
+	iWEN2_SShut= WEN2.WEN2_PC\Standby2\Shutdown\stVal OR WEN2.WEN2_PC\Standby4\Shutdown\stVal OR WEN2.WEN2_PC\Standby6\Shutdown\stVal 
+				OR WEN2.WEN2_PC\Standby8\Shutdown\stVal OR WEN2.WEN2_PC\Standby10\Shutdown\stVal OR WEN2.WEN2_PC\Standby12\Shutdown\stVal
+				OR WEN2.WEN2_PC\Standby14\Shutdown\stVal OR WEN2.WEN2_PC\Alarm2\Shutdown\stVal
+	
+
+	PageSetInt("WEN2_P_Shutdown",IntToStr(iWEN2_PShut));
+	PageSetInt("WEN2_S_Shutdown",IntToStr(iWEN2_SShut));
+	
+	PageSetInt("WEN2_P_Status1",IntToStr(iWEN2_P1));
+	PageSetInt("WEN2_S_Status1",IntToStr(iWEN2_S1));
+END

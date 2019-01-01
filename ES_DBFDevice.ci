@@ -1,0 +1,122 @@
+GLOBAL STRING includes[100];
+GLOBAL INT num;
+GLOBAL INT hMsg;
+
+
+INT FUNCTION dbfConnect(STRING dbfFile, STRING project)
+
+	INT hDev; //h is for handle - device handle
+	INT mErr;
+	
+		//hit a webClient - they aren't supported 
+		IF(NOT FileExist(project + "\" + dbfFile + ".DBF")) THEN
+			Message("Web Client Not Supported.", "Using a Web Client isn't supported by the Tag Viewer.",0);
+			QueClose(hStack);
+			QueClose(handleQue);
+			WinFree();
+		END
+	
+	
+		mErr = DevModify("DBFviewer", "*", "*", project + "\"+ dbfFile +".DBF", -1);
+		IF mErr <> 0 THEN
+			Message("Modification Error","There was a problem selecting the dbf file.",0);
+		END
+	    
+		hDev = DevOpen("DBFviewer",0);
+		IF hDev = -1 THEN        
+			DspError("Cannot open dbf reader device");        
+			RETURN 1;    
+		END
+	
+	
+    RETURN hDev;
+END
+
+
+
+FUNCTION testIncludeAll(STRING proj)
+	getAllprojects(proj);
+	viewIncludes();
+	removeIncludes();
+END
+
+
+
+INT 
+FUNCTION getAllprojects(STRING project1)
+    STRING path = ParameterGet("CtEdit","User","");
+    STRING nme;
+    INT size;
+    INT h;
+    INT i;
+    
+    IF project1 <> "" THEN
+       h = dbfConnect("include",path +"\"+project1);
+	   size = DevSize(h);
+	   DevClose(h);
+	    	
+	    FOR i = 0 TO size-1 DO
+	        h = dbfConnect("include",path +"\"+project1);
+	        DevSeek(h,i+1);
+
+	        nme = DevGetField(h,"NAME");
+	           
+	        DevClose(h);
+	        
+	        IF nme <> "" THEN
+	        		addInclude(nme);
+	        END	
+	        
+	        getAllprojects(nme); //superman recusion skills - ohh yea thats right!
+	   	 	
+	    END
+
+    END 
+
+    RETURN 0;
+
+END
+
+
+
+
+FUNCTION viewIncludes()
+Message("Viewing Includes","view includes now.",0);
+	INT i;
+
+	FOR i = 0 TO num-1 DO
+	      Message("includes", includes[i],0);
+	END
+
+END
+
+
+
+FUNCTION addInclude(STRING item)
+     IF item <> "" AND Duplicate(item) <> "true" THEN
+     includes[num] = item;
+     num = num + 1;
+     END
+END
+
+
+
+STRING 
+FUNCTION Duplicate(STRING item)
+  INT i;
+    FOR i = 0 TO num DO
+       IF item = includes[i] THEN
+       		RETURN "true";
+       END
+   END
+   
+   RETURN "false";
+END
+
+FUNCTION removeIncludes()
+	INT i;
+	FOR i=0 TO num DO
+		includes[i] = "";
+	END
+	num = 0;
+END

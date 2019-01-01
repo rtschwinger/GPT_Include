@@ -1,0 +1,416 @@
+//=========================================================================================================================================
+// Misc ES Functions
+
+MODULE INT EQUIP_EOF = 412;
+
+// Fix to save the first page for navagation.
+FUNCTION saveFirstPage()
+	
+    ErrSet(1);
+
+	PLSNavInitialise();
+	INT		nWin		= WinNumber();
+	STRING	sPage		= PageInfo(0);
+
+	_PLSNavCheckPageList(nWin, sPage);
+END
+
+// Formpad function valid for a range of values.
+//
+INT 
+FUNCTION ES_FormNumPad_Range(STRING sDesc, INT nDefaultVal, INT nMinVal, INT nMaxVal, INT nMode = 0)
+	INT nUserInput;
+	nUserInput = FormNumPad(sDesc, IntToStr(nDefaultVal), nMode);
+	IF nUserInput < nMinVal OR nUserInput > nMaxVal THEN
+		nUserInput = nDefaultVal;
+		Message("Invalid Value!", sDesc + " values must be between " + IntToStr(nMinVal) + " and " + IntToStr(nMaxVal) + ".", 48);
+	END
+	RETURN nUserInput;
+END
+
+
+//=========================================================================================================================================
+// ES Association Functions
+
+// Wraps the supergenie Ass() function, using association number and tag name.
+//
+INT
+FUNCTION ES_Assoc(INT nArg, STRING sTag, STRING sCluster = "")
+	IF sCluster = "" THEN
+		RETURN Ass( -2, nArg, sTag, 0);
+	ELSE
+		RETURN Ass( -2, nArg, sTag, 0, sCluster);
+	END
+END
+
+// Wraps the supergenie Ass() function, using association number and string value.
+//
+INT 
+FUNCTION ES_AssocS(INT nArg, STRING sValue, STRING sCluster = "")
+	IF sCluster = "" THEN
+		RETURN Ass( -2, nArg, "'" + sValue + "'", 0);
+	ELSE
+		RETURN Ass( -2, nArg, "'" + sValue + "'", 0, sCluster);
+	END
+END
+
+// Wraps the supergenie Ass() function, using association string and tag name.
+//
+INT 
+FUNCTION ES_AssocStr(STRING sArg, STRING sTag, STRING sCluster = "")
+	IF sCluster = "" THEN
+		RETURN Ass( -2, sArg, sTag, 0);
+	ELSE
+		RETURN Ass( -2, sArg, sTag, 0, sCluster);
+	END
+END
+
+// Wraps the supergenie Ass() function, using association string and tag name.
+//
+INT 
+FUNCTION ES_AssocStrS(STRING sArg, STRING sValue, STRING sCluster = "")
+	IF sCluster = "" THEN
+		RETURN Ass( -2, sArg, "'" + sValue + "'", 0);
+	ELSE
+		RETURN Ass( -2, sArg, "'" + sValue + "'", 0, sCluster);
+	END
+END
+
+
+//=========================================================================================================================================
+// ES Math/Format Functions
+
+STRING 
+FUNCTION ES_PFFormat(REAL nPF)
+	IF nPF > 0 AND nPF < 1 THEN RETURN "Lead"; END
+	IF nPF > -1 AND nPF < 0 THEN RETURN "Lag"; END
+	RETURN "";
+END
+
+REAL 
+FUNCTION ES_PFAbs(REAL nPF)
+	IF nPF = 0 THEN
+		RETURN 0;			//bug in Citect Abs() function...returns -0 for 0!
+	ELSE
+		RETURN Abs(nPF);
+	END
+END
+
+
+//Returns integer portion of number, similar to non-existant INT() function.
+//
+INT 
+FUNCTION ES_TruncInt(REAL rValue)
+	INT iValue
+	
+	IF rValue > 0 THEN
+		iValue = rValue - 0.5;
+	ELSE
+		iValue = 0;	//need to find routine that correctly handles neg numbers
+	END
+	
+	RETURN iValue;
+END
+
+
+//Returns 2-digit string (with leading zero if needed).
+//
+STRING 
+FUNCTION ES_IntToStr2(INT iNum)
+	IF iNum >= 0 AND iNum <= 9 THEN
+		RETURN "0" + IntToStr(iNum);
+	ELSE
+		RETURN IntToStr(iNum);
+	END
+END
+
+
+//Returns 3-digit string (with leading zeroes if needed).
+//
+STRING 
+FUNCTION ES_IntToStr3(INT iNum)
+	IF iNum >= 0 AND iNum <= 9 THEN
+		RETURN "00" + IntToStr(iNum);
+	ELSE
+		IF iNum >= 10 AND iNum <= 99 THEN
+			RETURN "0" + IntToStr(iNum);
+		ELSE
+			RETURN IntToStr(iNum);
+		END
+	END
+END
+
+//Returns 4-digit string (with leading zeroes if needed).
+//
+STRING 
+FUNCTION ES_IntToStr4(INT iNum)
+	IF iNum >= 0 AND iNum <= 9 THEN
+		RETURN "000" + IntToStr(iNum);
+	ELSE
+		IF iNum >= 10 AND iNum <= 99 THEN
+			RETURN "00" + IntToStr(iNum);
+		ELSE
+			IF iNum >= 100 AND iNum <= 999 THEN
+				RETURN "0" + IntToStr(iNum);
+			ELSE
+				RETURN IntToStr(iNum);
+			END
+		END
+	END
+END
+
+//Returns 32-bit long integer value with the 16-bit values reversed.
+REAL 
+FUNCTION ES_RevVal(REAL rVal);
+	INT nVal = rVal - 0.5;
+	INT nVal_msw = nVal / 65536 - 0.5;
+	INT nVal_lsw = nVal MOD 65536;
+	
+	RETURN 65536 * nVal_lsw + nVal_msw;
+END
+
+//Next 3 functiosn are useful for displaying time in hh:mm:ss from time in seconds.
+//Returns Seconds (0-60) from time data in seconds.
+//
+INT FUNCTION
+ES_GetSec(INT nSecs)
+	RETURN (nSecs MOD 60);
+END
+
+//Returns Minutes (0-60) from time data in seconds.
+//
+INT FUNCTION ES_GetMin(INT nSecs)
+	RETURN ES_TruncInt((nSecs - 3600 * ES_GetHour(nSecs)) / 60);
+END
+
+//Returns Hours from time data in seconds.
+//
+INT FUNCTION ES_GetHour(INT nSecs)
+	RETURN ES_TruncInt(nSecs / 3600);
+END
+
+//Returns Temperature in F from data in C.
+REAL 
+FUNCTION ES_TempCToF(REAL TempC)
+	RETURN (TempC * 9 / 5 + 32);
+END
+
+//Returns real number as string.  Same as RealToStr() function, but includes checking for NaN values.
+STRING 
+FUNCTION ES_RealToStr(REAL rNumber , INT iWidth , INT iPlaces)
+	STRING sNumber = StrTrim(RealToStr(rNumber , iWidth , iPlaces));
+	
+	//If NaN (Not-a-Number) is the value
+	IF StrSearch(0, sNumber, "$") <> -1 OR StrSearch(0, sNumber, "#") <> -1 THEN
+		RETURN "N/A";
+	END
+	
+	RETURN sNumber;	
+END
+
+//=========================================================================================================================================
+// ES I/O Device Functions
+
+//---------------------------------------------------------------------------------------------------------
+//Returns 1 - 4 for valid  IO Device status, otherwise 0.
+INT 
+FUNCTION ES_IODevState(STRING sDev)
+	SELECT CASE IODeviceInfo(sDev, 3)
+		CASE "1"	
+			RETURN 1;	//Online (primary)
+		CASE "2"	
+			RETURN 2;	//Online (standby)
+		CASE "16", "20", "24"	
+			RETURN 3;	//Offline (comms loss)
+		CASE "32"	
+			RETURN 4;	//Offline (disabled)
+		CASE ELSE	
+			RETURN 0;
+	END SELECT
+END
+
+//---------------------------------------------------------------------------------------------------------
+//Returns 1 if IO Device is online, otherwise 0.
+INT 
+FUNCTION ES_IODevIsOnline(STRING sDev)
+	//RETURN (IODeviceInfo(sDev, 3) = "1");
+	RETURN (ES_IODevState(sDev) <= 2);
+END
+
+//---------------------------------------------------------------------------------------------------------
+//Returns 1 if IO Device is offline (comms loss), otherwise 0.
+INT 
+FUNCTION ES_IODevIsOffline(STRING sDev)
+	//RETURN (IODeviceInfo(sDev, 3) = "16");
+	RETURN (ES_IODevState(sDev) = 3);
+END
+
+//---------------------------------------------------------------------------------------------------------
+//Returns 1 if IO Device is Disabled, otherwise 0.
+INT 
+FUNCTION ES_IODevIsDisabled(STRING sDev)
+	RETURN (IODeviceInfo(sDev, 3) = "32");
+END
+
+//---------------------------------------------------------------------------------------------------------
+//Enables (1) or Disables(0) an IO Device.
+FUNCTION ES_IODevSetEnable(STRING sDev, INT iEnable)
+	IF iEnable THEN
+		IODeviceControl(sDev, 1, 0);	//Enable IO device
+	ELSE
+		IODeviceControl(sDev, 1, 1);	//Disable IO device
+	END
+END
+
+//---------------------------------------------------------------------------------------------------------
+//Reinitialize a disk IO Device.
+FUNCTION ES_DeleteDiskDevice(STRING diskDevice , INT waitTime=500)
+	IODeviceControl(diskDevice,1,1);
+	SleepMS(waitTime);
+	FileDelete(IODeviceInfo(diskDevice, 2));
+	SleepMS(waitTime);
+	IODeviceControl(diskDevice,1,0);
+END
+
+
+//=========================================================================================================================================
+// Misc Genie Functions
+
+INT FUNCTION SelectNumInc(INT nCurVal, INT nMinVal, INT nMaxVal, INT nStep)
+	INT nTempVal = nCurVal + nStep;
+	
+	IF nTempVal >= nMinVal AND nTempVal <= nMaxVal THEN
+		RETURN nTempVal;
+	ELSE
+		RETURN nCurVal;
+	END
+END
+
+INT FUNCTION SelectNumSetVal(INT nCurVal, INT nMinVal, INT nStep)
+	INT nTempVal = ES_TruncInt(nCurVal / nStep) * nStep;
+
+	IF nTempVal >= nMinVal THEN
+		RETURN nTempVal;
+	ELSE
+		RETURN nMinVal;
+	END
+END
+
+INT FUNCTION ES_Misc_Dflt0(INT nValue = 0)
+	RETURN nValue;
+END
+
+
+INT FUNCTION ES_Misc_Alarm_Visible(INT bAlarmStatus, INT bAlarmFlashEnable)
+	RETURN (bAlarmStatus AND (bAlarmFlashEnable AND (TimeSec(TimeCurrent()) MOD 2) OR NOT bAlarmFlashEnable))
+END
+
+INT FUNCTION
+ES_Misc_Warn_Visible(INT bAlarmStatus, INT bWarnStatus, INT bWarnFlashEnable)
+	RETURN (bWarnStatus AND NOT bAlarmStatus AND (bWarnFlashEnable AND (TimeSec(TimeCurrent()) MOD 2) OR NOT bWarnFlashEnable))
+END
+
+
+FUNCTION ES_IODev_Toggle_Enable(STRING sIODevice, INT bConfirm = 0)
+	IF ES_IODevState(sIODevice) <= 3 THEN
+		IF bConfirm THEN
+			IF Message("IO Dev Control", "Disable device " + sIODevice + "?", 1+32) = 0 THEN
+				ES_IODevSetEnable(sIODevice, 0);	//Disable
+			END
+		ELSE
+			ES_IODevSetEnable(sIODevice, 0);	//Disable
+		END
+	ELSE
+		IF bConfirm THEN
+			IF Message("IO Dev Control", "Enable device " + sIODevice + "?", 1+32) = 0 THEN
+				ES_IODevSetEnable(sIODevice, 1);	//Enable
+			END
+		ELSE
+			ES_IODevSetEnable(sIODevice, 1);	//Enable
+		END
+	END
+END
+
+//Description - Retrieves the cluster used by a specific IODevice
+//Args		  - sIODevice -> The IODevice to get the cluster for
+STRING FUNCTION GetClusterFromEquip(STRING sIODevice)
+	INT hEquip = EquipBrowseOpen();
+	INT iEquipRecord = EquipBrowseFirst(hEquip);
+	STRING sReturnVal = "";
+
+	//Loop through all IODevice entries
+	WHILE (iEquipRecord <> EQUIP_EOF) DO
+
+		IF (EquipBrowseGetField(hEquip , "IODEVICE") = sIODevice) THEN
+			//Cluster for matched device
+			sReturnVal = EquipBrowseGetField(hEquip , "CLUSTER")
+		
+			//Close connection
+			EquipBrowseClose(hEquip);
+			
+			//Found match
+			RETURN sReturnVal;
+		END
+		
+		//Get next equipment record
+		iEquipRecord = EquipBrowseNext(hEquip);	
+	END
+	
+	//Close connection
+	EquipBrowseClose(hEquip);
+	
+	//No match found
+	RETURN "";
+END
+
+//Description - Copies one device's tag values to another (Wrapper Function)
+//Args		  - sSourceDevice -> Device to copy from
+//			    sDevice       -> Device to copy to
+//				iUpdateRate   -> Rate at each values are copied
+//				sCluster      -> Cluster context
+FUNCTION ES_DuplicateDeviceTagValues(STRING sSourceDevice , STRING sDevice , INT iUpdateRate = 1000 , STRING sCluster = "")
+	TaskNew("_DuplicateDeviceTagValues" , "^"" + sSourceDevice + "^",^"" + sDevice + "^"," + IntToStr(iUpdateRate) + ",^"" + sCluster + "^"" , 0 , sCluster);
+END
+
+//Description - Copies one device's tag values to another (Task Function)
+//Args		  - sSourceDevice -> Device to copy from
+//			    sDevice       -> Device to copy to
+//				iUpdateRate   -> Rate at each values are copied
+//				sCluster      -> Cluster context
+FUNCTION _DuplicateDeviceTagValues(STRING sSourceDevice , STRING sDevice , INT iUpdateRate = 1000 , STRING sCluster = "")
+	//Local Variables
+	INT hVariableRDB;
+	INT hVariableRecord;
+
+	//Open the variable tag RDB
+	hVariableRDB = RdbOpen("_VARIABL");
+	
+	WHILE(1) DO
+		//Check user login status (Required for first time screen loads)
+		IF (GetPriv(1 , 0) = 0) THEN
+			//Login to system account if not logged in
+			//Required to view comments from DBF
+			ES_LoginSystem(0);
+		END
+		
+		//Get first variable RDB record		
+		hVariableRecord = RdbFirstRec(hVariableRDB);
+
+		
+		//Search variable RDB
+		WHILE (hVariableRDB <> 0 AND hVariableRecord <> -1) DO
+			//Found source device tag
+			IF (RdbGet(hVariableRDB , "Custom1") = sSourceDevice) THEN
+				//Copy source device tag value to destination device tag
+				TagWrite(sDevice + StrRight(RdbGet(hVariableRDB , "Tag") , StrLength(RdbGet(hVariableRDB , "Tag")) - StrSearch(0 , RdbGet(hVariableRDB , "Tag") , "\")), TagRead(RdbGet(hVariableRDB , "Tag") , 0 , sCluster) , 0 , 0 , sCluster);
+				
+			END
+
+			//Get next record
+			hVariableRecord = RdbNextRec(hVariableRDB);
+		END
+
+		//Pause thread for specified update rate
+		SleepMS(iUpdateRate);		
+	END
+END

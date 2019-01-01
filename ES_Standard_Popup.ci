@@ -1,0 +1,1613 @@
+//Description - SAG Standard Popup Offering
+//Author      - Saeed Ghezawi
+//Company	  - Schneider Electric
+//Group		  - Software Applications Group
+//Date Mod.	  - 9/4/2012
+
+//Naming conventions followed:
+//		-Module Variable       -> (Global to Cicode file) = All caps with underscores between words
+//		-Local Variable Tags   -> First character of each word caps with no spaces/no underscores
+//		-Cicode Local Variable -> Data type identifier letter (i=INT,h=Handle(INT),s=STRING,r=REAL
+//								  o=OBJECT, b=Boolean (INT)) followed by first character of each
+//								  word caps with no spaces/no underscores
+
+//This product uses the following PLSCADA resources (Required for project to use the popup):
+//		-Graphics page
+//			!ES_Standard_Popup_Large
+//			!ES_Standard_Popup_Medium
+//			!ES_Standard_Popup_Small
+//			!ES_ColorSelection
+//			!ES_Historical_Trending
+//			!ES_Webpage
+
+//		-Variable Tags (Disk):
+//			INT zES\Box_Fill_Color
+//				I/O Device Name - zES
+//				Data Type - INT
+//			INT zES\Box_Border_Color
+//				I/O Device Name - zES
+//				Data Type - INT
+//			INT zES\Box_Gradient_Mode
+//				I/O Device Name - zES
+//				Data Type - INT
+//			INT zES\Background_Color
+//				I/O Device Name - zES
+//				Data Type - INT
+
+//		-Cicode Files
+//			ES_Standard_Popup.ci
+//			ES_Trending.ci
+
+//This file includes the following Cicode functions (In order):
+// - Core Functions
+//		ES_Popup(STRING sDevice , STRING sTitle = sDevice , STRING sBitmap = "" , STRING sHelpPDF = "" , STRING sWebsite = "" , STRING sCluster = "")
+//		ES_Popup_AlarmTask(STRING sDevice , STRING sCluster = "")
+
+// - Utility Functions
+//		InitializeStandardPopup(STRING sDevice , STRING sBitmap = "" , STRING sCluster = "")
+//		UninitializePopup()
+//		_GetButtonPress()
+//		_ShowPopupAlarmMenu()
+//		PopupAlarmMenu(INT iAlarmRow)
+//		STRING SetAlarmStateText(STRING sDescription , STRING sState)
+//		INT DetermineAlarmStringOverflow(INT iAlarmAN , INT iAlarmCount , STRING sText)
+//		STRING DelimitAssInt(INT iNumber , STRING sAssText , STRING sDelimiter = ",")
+//		STRING DelimitAssReal(REAL rNumber , STRING sAssText , INT iWidth = 10 , INT iPlaces = 1 , STRING sDelimiter = ",")
+//		STRING ShowAssPF(REAL iPF , STRING sAssText)
+//		STRING ShowPLWireType(INT iType , STRING sAssText)
+//		STRING ShowMeterTime(INT iDateTime)
+//		Webpage_Show(STRING sPage, STRING sLink, STRING sCluster = "")
+//		DisplayWebpage (STRING sLink)
+//		ColorSelection_MenuShow(STRING sCluster)
+//		ColorSelection_Show(STRING sColorVariable , STRING sTitle = (sColorVariable + " Color Selection"), STRING sCluster = "")
+//		HistoricalTrends_Show(STRING sDevice , STRING sCluster = "")
+//		OBJECT ES_PA_AddPen(OBJECT hPens , STRING sTagname , STRING sComment , INT iLineColor)
+//		INT ESAssNum(INT iAssNum , STRING sTag , STRING sCluster = "")
+//		INT ESAssText(STRING sAssNum , STRING sTag , STRING sCluster = "")
+//		ESAssText_Trend(STRING sAssText , STRING sTag , STRING sCluster = "")
+
+
+
+
+//////////////////////////////////////////////////////////////////
+//          DO NOT MODIFY ANYTHING BEYOND THIS POINT            //
+// PLEASE CONTACT SOFTWARE APPLICATIONS GROUP FOR MODIFICATIONS //
+// IF YOU ARE CREATING A CUSTOM DEVICE TYPE POPUP BASED ON THIS //
+// CODE THEN COPY/PASTE THE ES_Popup FUNCTION INTO YOUR PROJECT //
+// AND CHANGE THE NAME TO REFLECT YOUR CUSTOM DEVICE TYPE       //
+//////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////
+// GLOBAL VARIABLES                                            	  	  //
+// Description - Variables global to ONLY this Cicode file	          //
+////////////////////////////////////////////////////////////////////////
+
+//Enumerations
+MODULE INT ALL_CATEGORY = 0;		//Checks all alarm categories
+MODULE INT ACTIVE_ALARM = 0;		//Checks all active alarms
+MODULE INT CURRENT_AREA = -1;		//Checks alarms in current area
+MODULE INT ALARM_EOF = -1;			//All alarms have been checked
+MODULE INT WINDOW_OPEN_FAILED = -1; //WinNew or WinNewAt failed
+MODULE INT ANALOG_PEN = 4097;		//Trend with analog pen
+MODULE INT DIGITAL_PEN = 4098;		//Trend with digital pen
+MODULE INT ALARM_PEN = 4099;		//Trend with alarm pen
+MODULE INT USE_TREND_COMMENT = 1;	//Trend pen comment uses trend comment 
+MODULE INT USE_DATAPOINT_NAME = 2;	//Trend pen comment uses datapoint(Tag) name
+MODULE INT USE_CUSTOM_NAME = 3;		//Trend pen comment uses custom specified text
+MODULE INT WINDOW_WIDTH = 12;		//PageInfo Window width
+MODULE INT PAGE_WIDTH = 21;			//PageInfo Background Page width
+MODULE INT LEFT_JUSTIFIED = 0;  	//DspText left justification
+MODULE INT CENTER_JUSTIFIED = 2 	//DspText Center Justification
+MODULE INT TRUNC_WITH_ELLIPSIS = 1; //DspStr truncate with an [...]
+MODULE INT NO_MATCH_FOUND = -1;		//StrSearch didn't find a match
+
+//Constants
+MODULE INT DEFAULT_WINDOW_MODE = 773;			//Window mode used by default : 1(Page child window)/4(No resize window)/256(Show all window)/512(Unique super genie)
+MODULE INT BITMAP_AN = 1000;					//Animation number used by dynamic bitmap graphic
+MODULE INT BASE_ALARM_DATE_AN = 1001;			//First sequential animation number used to display alarm date
+MODULE INT BASE_ALARM_TIME_AN = 1051;			//First sequential animation number used to display alarm time
+MODULE INT BASE_ALARM_DESCRIPTION_AN = 1101;	//First sequential animation number used to display alarm description
+MODULE INT BASE_ALARM_STATE_AN = 1151;			//First sequential animation number used to display alarm state
+MODULE INT BASE_ALARM_LOCATION_AN = 1401;		//First sequential animation number used to display alarm location
+MODULE INT ALARM_PIXEL_BUFFER = 15;				//Number of pixels used to buffer alarm text from boundaries
+MODULE INT BITMAP_Y_COORDINATE = 64;			//Y-Coordinate dynamic bitmap will be moved to
+
+//Variables
+MODULE INT PRIOR_KEY_EVENT_HANDLE;		//Stores event handler before key press OnEvent is called (Used to restore old handler on popup exit)
+
+
+
+////////////////////////////////////////////////////////////////////////
+// CORE FUNCTIONS                                             	  	  //
+// Description - Functions for displaying popup and  device alarms	  //
+////////////////////////////////////////////////////////////////////////
+
+//Description - Sets popup associations and displays popup window.
+//				This is a generic popup that uses SAG SSOW tags.
+//				For custom device copy and use this generic popup
+//				to create a custom popup (Code and graphics screen).
+//        Caller - Any object's "Input Up" command (Button commonly)
+//        Args   - sDevice  -> Name of device to call popup for. No default (Required parameter)
+//					Example: "MyCM4000" if you have a device in units.DBF named "MyCM4000"
+//				sType    -> Standard popup type to display. "S" , "M" , or "L" where
+//						    "S" has basic tags , "M" has SSOW tags for PL devices, and "L"
+//							has up to 10 preconfigured digital points read from databases.
+//							If using "L" you can specify # of digitals. For example "L5" for
+//							five digital points. Defaults to ten digitals (If found).
+//				sTitle   -> Title shown in window title bar. Defaults to device name
+//					Example: "Circuit Monitor 4000 Popup"
+//				sTrendTimeSpan  -> Sets default timespan for the trend popup, in HH:SS format
+//					Example: "01:00" for 1 hour.  Default is 1 hour. 
+//				sHelpPDF -> Any PDF file path. Defaults to nothing and hides button on popup
+//					Example: PathToStr("[RUN]:CM4000_Manual.PDF")
+//				sWebsite -> Any webpage link. Defaults to nothing and hides button on popup
+//					Example: "http://10.10.10.10" (For EGX/ECC webpage)
+//				sCluster -> The cluster the device residues in. Defaults to active cluster
+//					Example: "MyCluster" if you have a cluster in cluster.DBF named "MyCluster"
+FUNCTION ES_Popup(STRING sDevice , STRING sType = "M" , STRING sTitle = sDevice , STRING sTrendTimeSpan = "" , STRING sHelpPDF = "" , STRING sWebsite = "" , STRING sCluster = "")
+	//Local variables
+	INT iMouseX;
+	INT iMouseY;
+	INT hWin;
+	INT iDateTimeResult;
+	
+	//Get mouse position (Where popup will be displayed)
+	DspGetMouse(iMouseX , iMouseY); 
+	
+	//Always associated for all popup types
+	//Power Associations
+	ESAssText_Trend("Total_Real_Power" , sDevice + "\MMXU1\TotW" , sCluster);
+	ESAssText_Trend("Total_Reactive_Power" , sDevice + "\MMXU1\TotVAr" , sCluster);
+	ESAssText_Trend("Total_Apparent_Power" , sDevice + "\MMXU1\TotVA" , sCluster);
+	
+	//Demand Power Associations
+	ESAssText_Trend("Total_Demand_Real_Power" , sDevice + "\MSTA1\AvW" , sCluster);
+	
+	//Energy Associations
+	ESAssText_Trend("Total_Real_Energy" , sDevice + "\MMTR1\TotWh" , sCluster);
+	
+	//Current Associations
+	ESAssText_Trend("Phase_A_Current" , sDevice + "\MMXU1\A\phsA" , sCluster);
+	ESAssText_Trend("Phase_B_Current" , sDevice + "\MMXU1\A\phsB" , sCluster);
+	ESAssText_Trend("Phase_C_Current" , sDevice + "\MMXU1\A\phsC" , sCluster);
+	ESAssText_Trend("Average_Current" , sDevice + "\MMXU1\A\zavg" , sCluster);
+	ESAssText_Trend("Neutral_Current" , sDevice + "\MMXU1\A\neut" , sCluster);
+	
+	//Voltage Associations
+	ESAssText_Trend("AB_Voltage" , sDevice + "\MMXU1\PPV\phsAB" , sCluster);
+	ESAssText_Trend("BC_Voltage" , sDevice + "\MMXU1\PPV\phsBC" , sCluster);
+	ESAssText_Trend("CA_Voltage" , sDevice + "\MMXU1\PPV\phsCA" , sCluster);
+	ESAssText_Trend("Average_LL_Voltage" , sDevice + "\MMXU1\PPV\zavg" , sCluster);
+	ESAssText_Trend("AN_Voltage" , sDevice + "\MMXU1\PhV\phsA" , sCluster);
+	ESAssText_Trend("BN_Voltage" , sDevice + "\MMXU1\PhV\phsB" , sCluster);
+	ESAssText_Trend("CN_Voltage" , sDevice + "\MMXU1\PhV\phsC" , sCluster);
+	ESAssText_Trend("Average_LN_Voltage" , sDevice + "\MMXU1\PhV\zavg" , sCluster);
+	
+	//Miscellaneous Associations
+	ESAssText_Trend("Frequency" , sDevice + "\MMXU1\Hz" , sCluster);
+	ESAssText_Trend("Power_Factor" , sDevice + "\MMXU1\TotPF" , sCluster);
+	
+	//Graphical Associations
+	ESAssText("Device" , "'" + sDevice + "'" , sCluster);
+	ESAssText("Cluster" , "'" + sCluster + "'" , sCluster);
+	//ESAssText("Bitmap" , "'" + sBitmap + "'" , sCluster);
+	ESAssText("Type" , "'" + sType + "'" , sCluster);
+	ESAssText("Device_Website" , "'" + sWebsite + "'" , sCluster);
+	ESAssText("Help_PDF" , "'" + sHelpPDF + "'" , sCluster);
+	ESAssText("Title" , "'" + sTitle + "'" , sCluster);
+	ESAssText("TrendTimeSpan" , "'" + sTrendTimeSpan + "'" , sCluster);
+	
+	iDateTimeResult = ESAssText("Meter_DateTime" , sDevice + "\LLN0\OpTmh\t" , sCluster);
+	
+	//No tag found for DateTime
+	IF (iDateTimeResult = 323) THEN
+		ESAssText("Meter_DateTime" , "'-1'" , sCluster);
+	END
+	
+	//Selected "Medium" sytle popup with SSOW quantities
+	IF (StrLeft(sType , 1) = "M" OR StrLeft(sType , 1) = "L") THEN
+		//Demand Power Associations
+		ESAssText_Trend("Total_Demand_Reactive_Power" , sDevice + "\MSTA1\AvVAr" , sCluster);
+		ESAssText_Trend("Total_Demand_Apparent_Power" , sDevice + "\MSTA1\AvVA" , sCluster);
+		
+		//Energy Associations
+		ESAssText_Trend("Total_Reactive_Energy" , sDevice + "\MMTR1\TotVArh" , sCluster);
+		ESAssText_Trend("Total_Apparent_Energy" , sDevice + "\MMTR1\TotVAh" , sCluster);
+		
+		//Current Associations
+		ESAssText_Trend("Ground_Current" , sDevice + "\MMXU1\A\zgnd" , sCluster);
+		
+		//Voltage Associations
+		ESAssText_Trend("Unbalance_LL_Worst_Voltage" , sDevice + "\SLR_MSQI1\MaxImbPPV" , sCluster);
+		ESAssText_Trend("Unbalance_LN_Worst_Voltage" , sDevice + "\SLR_MSQI1\MaxImbV" , sCluster);
+		
+		//THD Associations
+		ESAssText_Trend("Voltage_AB_THD" , sDevice + "\MHAI1\ThdPPV\phsAB" , sCluster);
+		ESAssText_Trend("Voltage_BC_THD" , sDevice + "\MHAI1\ThdPPV\phsBC" , sCluster);
+		ESAssText_Trend("Voltage_CA_THD" , sDevice + "\MHAI1\ThdPPV\phsCA" , sCluster);
+		ESAssText_Trend("Voltage_AN_THD" , sDevice + "\MHAI1\ZThdPhV\phsA" , sCluster);
+		ESAssText_Trend("Voltage_BN_THD" , sDevice + "\MHAI1\ZThdPhV\phsB" , sCluster);
+		ESAssText_Trend("Voltage_CN_THD" , sDevice + "\MHAI1\ZThdPhV\phsC" , sCluster);	
+		
+		//Miscellaneous Associations
+		ESAssText_Trend("Wire_Type" , sDevice + "\LLN0\ZWrType" , sCluster);
+	END
+	
+	//Create popup window
+	IF (StrLeft(sType , 1) = "L") THEN	
+		hWin = WinNewAt("!ES_Standard_Popup_Large" , iMouseX + StrToInt(PageInfo(14)) , iMouseY + StrToInt(PageInfo(15)) , DEFAULT_WINDOW_MODE);
+	ELSE IF (StrLeft(sType , 1) = "M") THEN	
+		hWin = WinNewAt("!ES_Standard_Popup_Medium" , iMouseX + StrToInt(PageInfo(14)) , iMouseY + StrToInt(PageInfo(15)) , DEFAULT_WINDOW_MODE);
+	ELSE
+		hWin = WinNewAt("!ES_Standard_Popup_Small" , iMouseX + StrToInt(PageInfo(14)) , iMouseY + StrToInt(PageInfo(15)) , DEFAULT_WINDOW_MODE);
+	END END
+	
+	//Ensure popup window opened
+	IF (hWin <> WINDOW_OPEN_FAILED) THEN
+		//Set window title
+		WinTitle(sTitle);
+	END
+END
+
+
+//Note:		This function will be called from the ES standard and ES custom popups defined in this version of ES_Common.
+//			Any existing user custom popups created on user project based on the ES popups will call
+//			the ES_Popup_AlarmTask() function located in the ES_Standard_Popup_Legacy.ci file.
+//			This is to ensure that the alarms display properly as they have been doing so (i.e. not broken by new code defined here).
+
+//Description - Displays last five device specific alarms and update digital indicator states
+//				By default shows all Unack alarms and Ack active alarms
+//Caller 	  - InitializeStandardPopup via task
+//Args	      - sDevice  -> Name of device to find alarms for. No default (Required parameter)
+//					Example: "MyCM4000" if you have a device in units.DBF named "MyCM4000"
+//				sType    -> Standard popup type to display. "S" , "M" , or "L" where
+//						    "S" has basic tags , "M" has SSOW tags for PL devices, and "L"
+//							has up to 10 preconfigured digital points read from databases.
+//							If using "L" you can specify # of digitals. For example "L5" for
+//							five digital points. Defaults to ten digitals (If found).
+//				sCluster -> The cluster the device residues in. Defaults to active cluster
+//					Example: "MyCluster" if you have a cluster in cluster.DBF named "MyCluster"
+FUNCTION ES_Popup_AlarmTask_Fixed(STRING sDevice , STRING sType , STRING sCluster = "")
+	//Local variables
+	INT bMedLgPopup = (StrToInt(PageInfo(PAGE_WIDTH)) >= 749);	//Determine if popup is medium/large
+	INT hAlarmRecord;
+	INT iAlarmCount;
+	INT iDigitalCount;
+	INT iCount;
+	INT iMaxAlarmExtent;
+	INT iStateANx;
+	INT iStateANy;
+	INT hRPC;
+	INT bAlarmStringOverflow;
+	INT hDigitalFont;
+	INT hDigitalFontBlk = DspFontHnd("SPU_Font");
+	INT hDigitalFontWht = DspFontHnd("SPU_Font_Wht");
+	INT hAlarmInactiveFont = DspFontHnd("ArialGreen11b");
+	INT hAlarmAckActiveFont = DspFontHnd("ArialLtRed11");
+	INT hAlarmUnackActiveFont = DspFontHnd("ArialLtRed11b");
+	INT hDigitalRDB;
+	INT hDigitalRecord;
+	INT iMaxWidth;
+	INT iWidth_Desc, iWidth_State, iWidth_Location;
+	INT iAlarmValue;
+	INT iHighHigh;
+	INT iHigh;
+	INT iLow;
+	INT iLowLow;
+	STRING sAlarmDate;
+	STRING sAlarmTime;
+	STRING sAlarmTimeMS;
+	STRING sAlarmTimeDsp;
+	STRING sAlarmName;
+	STRING sAlarmState;
+	STRING sAlarmText;
+	STRING sAlarmCustom2;
+	STRING sAlarmLocation;
+	STRING sAlarmStateText;
+	STRING sAlarmStateDesciption;
+	STRING sAlarmType;
+	STRING sAlarmAck;
+	STRING sAlarmStateValue;
+	STRING sDigAlmText;
+	
+	//Enable user error checking
+	ErrSet(1);
+
+	//Check user login status (Required for first time screen loads)
+	IF (GetPriv(1 , 0) = 0) THEN
+		//Login to system account if not logged in
+		//Required to view comments from DBF
+		ES_LoginSystem(0);
+	END
+
+	//Select digital text font based on Color Invert Mode - Basically either black (default) or white
+	IF zES\ColorInvert_Mode THEN
+		hDigitalFont = hDigitalFontWht;
+	ELSE
+		hDigitalFont = hDigitalFontBlk;
+	END
+
+	//Open RPC message session to alarm server
+	hRPC = MsgOpen("Alarm" , 0 , 0 , sCluster);
+	
+	////////////////////////////////////////////
+	//Setup use of automatic digitals on popup//
+	////////////////////////////////////////////
+	
+	//Selected "Large" style popup with digitals
+	IF (StrLeft(sType , 1) = "L") THEN
+		//Reset loop variables
+		iAlarmCount = 1;
+		hDigitalRDB = StrToInt(MsgRPC(hRPC , "RdbOpen" , "^"_DIGALM^"" , 0));
+		hDigitalRecord = StrToInt(MsgRPC(hRPC , "RdbFirstRec" , IntToStr(hDigitalRDB) , 0));
+	
+		IF (StrLength(sType) > 1) THEN
+			//Retrieve # of digitals to display
+			iDigitalCount = StrToInt(StrRight(sType , StrLength(sType) - 1));
+		ELSE
+			//Default to max (Not specified)
+			iDigitalCount = StrToInt(ParameterGet("ES_Popup" , "MaxDigital" , "20"));
+		END
+		
+		//If specified no digitals, default to one
+		IF (iDigitalCount <= 0) THEN
+			iDigitalCount = 1;
+		//If specifed more than max, set to max
+		ELSE IF (iDigitalCount > StrToInt(ParameterGet("ES_Popup" , "MaxDigital" , "20"))) THEN
+			iDigitalCount = StrToInt(ParameterGet("ES_Popup" , "MaxDigital" , "20"));
+		END END
+
+		//Search digital alarms RDB (Set the static alarm descriptions based on Custom1 and Name fields of DigAlm.DBF)
+		WHILE (hDigitalRDB <> 0 AND hDigitalRecord <> -1 AND iAlarmCount <= iDigitalCount) DO
+			//Check if alarm matches I/O device
+			IF (MsgRPC(hRPC , "RdbGet" , IntToStr(hDigitalRDB) + ",^"Custom1^"" , 0) = sDevice) THEN
+				//Set Digital Text
+				IF (iDigitalCount <= 10) THEN
+					DspText(1300 + iAlarmCount , hDigitalFont , StrToLocalText(MsgRPC(hRPC , "RdbGet" , IntToStr(hDigitalRDB) + ",^"Name^"" , 0)) , 483 , LEFT_JUSTIFIED , TRUNC_WITH_ELLIPSIS);
+					DspSetTip(1300 + iAlarmCount , StrToLocalText(MsgRPC(hRPC , "RdbGet" , IntToStr(hDigitalRDB) + ",^"Name^"" , 0)));
+				ELSE
+					DspText(1300 + iAlarmCount , hDigitalFont , StrToLocalText(MsgRPC(hRPC , "RdbGet" , IntToStr(hDigitalRDB) + ",^"Name^"" , 0)) , 217 , LEFT_JUSTIFIED , TRUNC_WITH_ELLIPSIS);
+					DspSetTip(1300 + iAlarmCount , StrToLocalText(MsgRPC(hRPC , "RdbGet" , IntToStr(hDigitalRDB) + ",^"Name^"" , 0)));
+				END
+				
+				//Increment alarm count
+				iAlarmCount = iAlarmCount + 1;
+			END
+	
+			//Get next unacknowledged alarm record
+			hDigitalRecord = StrToInt(MsgRPC(hRPC , "RdbNextRec" , IntToStr(hDigitalRDB) , 0));
+			
+			//Reduce CPU usage
+			SleepMS(1);
+		END
+	END
+	
+	//Set description AN maximum width (All description AN have same left justification)
+	iMaxWidth = StrToInt(PageInfo(PAGE_WIDTH)) - 190 - 15;
+
+	//Set alarm field widths
+	IF bMedLgPopup THEN
+		iWidth_Desc = 368;
+	ELSE
+		iWidth_Desc = 200;
+	END
+	iWidth_State = 100;
+	iWidth_Location = 80;
+	
+	//////////////////////////////
+	//Main infinite refresh loop//
+	//////////////////////////////
+	//Loop forever (Ends when popup window closed)
+	WHILE(1) DO
+		//Check user login status (Required for first time screen loads)
+		IF (GetPriv(1 , 0) = 0) THEN
+			//Login to system account if not logged in
+			//Required to view comments from DBF
+			ES_LoginSystem(0);
+		END
+		
+		//Popup has auto-digitals (Retrieve the current state for indicators)
+		IF (StrLeft(sType , 1) = "L") THEN
+			//Reset loop variables
+			iAlarmCount = 1;
+			hDigitalRecord = StrToInt(MsgRPC(hRPC , "RdbFirstRec" , IntToStr(hDigitalRDB) , 0));
+	
+			//Select digital text font based on Color Invert Mode - Basically either black (default) or white
+			IF zES\ColorInvert_Mode THEN
+				hDigitalFont = hDigitalFontWht;
+			ELSE
+				hDigitalFont = hDigitalFontBlk;
+			END
+			
+			//Determine digital point display states
+			WHILE (hDigitalRDB <> 0 AND hDigitalRecord <> ALARM_EOF AND iAlarmCount <= iDigitalCount) DO
+				//Check if alarm matches I/O device
+				IF (MsgRPC(hRPC , "RdbGet" , IntToStr(hDigitalRDB) + ",^"Custom1^"" , 0) = sDevice) THEN
+					//Get alarm handle
+					hAlarmRecord = StrToInt(MsgRPC(hRPC , "AlarmFirstTagRec" , "^"" + MsgRPC(hRPC , "RdbGet" , IntToStr(hDigitalRDB) + ",^"Tag^"" , 0) + "^",^"^",^"^",^"" + sCluster + "^"" , 0));
+	
+					//Get alarm state
+					IF (MsgRPC(hRPC , "AlarmGetFieldRec" , IntToStr(hAlarmRecord) + ",^"State^"" , 0) = "OFF") THEN
+						DspSym(1200 + iAlarmCount , ParameterGet("ES_Popup" , "DigitalOff" , "lights.light_1_black"));
+					ELSE
+						DspSym(1200 + iAlarmCount , ParameterGet("ES_Popup" , "DigitalOn" , "lights.light_1_green"));
+					END
+					
+					//If digital text font has changed (i.e. the InvertTextColor was toggled) then re-display digital text
+					IF StrToInt(DspAnInfo(1300 + iAlarmCount, 0)) <> hDigitalFont THEN
+						//Re-display Digital Text
+						sDigAlmText = DspAnInfo(1300 + iAlarmCount, 2);
+						IF (iDigitalCount <= 10) THEN
+							DspText(1300 + iAlarmCount , hDigitalFont , sDigAlmText , 483 , LEFT_JUSTIFIED , TRUNC_WITH_ELLIPSIS);
+						ELSE
+							DspText(1300 + iAlarmCount , hDigitalFont , sDigAlmText , 217 , LEFT_JUSTIFIED , TRUNC_WITH_ELLIPSIS);
+						END
+					END
+
+					//Increment count
+					iAlarmCount = iAlarmCount + 1;
+				END
+				
+				//Get next digital alarm record
+				hDigitalRecord = StrToInt(MsgRPC(hRPC , "RdbNextRec" , IntToStr(hDigitalRDB) , 0));
+			END
+		END
+	
+		//Reset loop variables
+		iAlarmCount = 0;
+		bAlarmStringOverflow = 0;
+		hAlarmRecord = rpcAlarmQueryFirstRec(hRPC);
+
+		//Display alarm text (Disregard spacing)
+		WHILE(iAlarmCount <= 4 ) DO		
+			//Next alarm matches I/O device
+			IF (rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "Custom1") = sDevice AND rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "Category") <> "1004") THEN
+				//Get alarm date
+				sAlarmDate = rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "Date");
+				//sAlarmDate = StrPad(MsgRPC(hRPC , "AlarmGetFieldRec" , IntToStr(hAlarmRecord) + ",^"Date^"" , 0), "0", -10);	//Test only
+
+				//Get alarm time
+				sAlarmTime = rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "Time");
+
+				//Get alarm description
+				sAlarmName = rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "Name");
+				
+				//Get alarm state information
+				sAlarmStateDesciption = rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "Desc");
+				sAlarmAck = rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "Type");
+				sAlarmStateValue = rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "State");
+				iAlarmValue = StrToInt(rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "Value"));
+				
+				//Get alarm location (Custom2) (PCBased or Onboard)
+				sAlarmCustom2 = rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "Custom2");
+				IF StrLeft(sAlarmCustom2, 7) = "PCBased" THEN
+					sAlarmLocation = "PCBased";
+				ELSE
+					sAlarmLocation = "Onboard";
+				END
+				
+				//Get alarm time milliseconds information
+				IF sAlarmStateValue = "ON" THEN
+					sAlarmTimeMS = rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "OnMilli");
+				ELSE
+					sAlarmTimeMS = rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "OffMilli");
+				END
+				
+				//Format alarm time for display
+					sAlarmTimeDsp = StrLeft(sAlarmTime, 8) + "." + StrPad(sAlarmTimeMS, "0", -3) + " " + StrRight(sAlarmTime, 2);
+				
+				//Determine alarm type (Analog or NOT Analog)
+				IF (sAlarmStateDesciption = "LOW" OR sAlarmStateDesciption = "LOW LOW" OR sAlarmStateDesciption = "HIGH" OR sAlarmStateDesciption = "HIGH HIGH") THEN
+					//Set alarm type
+					sAlarmType = "ANALOG";
+					
+					//Get thresholds
+					iHighHigh = StrToInt(rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "HighHigh"));
+					iHigh = StrToInt(rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "High"));
+					iLow = StrToInt(rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "Low"));
+					iLowLow = StrToInt(rpcAlarmGetFieldRec(hRPC, hAlarmRecord, "LowLow"));
+		
+					//Format alarm state
+					//Analog alarms have no database value that will tell the correct state
+					//LogState will show "ACTIVE" falsely and Desc and State will not show "NORMAL"
+					IF (sAlarmAck = "ACKNOWLEDGED") THEN
+						sAlarmState = "Acknowledged";
+					ELSE IF (iAlarmValue > iHighHigh) THEN
+						sAlarmState = "HIGH HIGH";
+					ELSE IF (iAlarmValue > iHigh) THEN
+						sAlarmState = "HIGH";
+					ELSE IF (iAlarmValue < iLowLow) THEN
+						sAlarmState = "LOW LOW";
+					ELSE IF (iAlarmValue < iLow) THEN
+						sAlarmState = "LOW";
+					ELSE
+						sAlarmState = "Normal";
+					END END END END END //end if
+				ELSE
+					//Set alarm type
+					sAlarmType = "OTHER";
+					
+					//Format alarm state
+					IF (sAlarmAck = "ACKNOWLEDGED") THEN
+						sAlarmState = "Acknowledged";
+					ELSE IF (sAlarmStateValue = "ON") THEN
+						sAlarmState = "ACTIVE";
+					ELSE IF (sAlarmStateValue = "OFF") THEN
+						sAlarmState = "INACTIVE";
+					END END END //end if
+				END //end if
+
+				//Set alarm state text
+				sAlarmStateText = MsgRPC(hRPC , "SetAlarmStateText" , "^"" + sAlarmStateDesciption + "^",^"" + sAlarmState + "^",^"" + sAlarmType + "^"" , 0);
+				
+				//Set tooltip for all AN
+				DspSetTip(BASE_ALARM_DATE_AN + iAlarmCount , sAlarmDate + "   " + sAlarmTimeDsp + "   " + sAlarmName + "   " + sAlarmStateText + "   " + sAlarmLocation);
+				DspSetTip(BASE_ALARM_TIME_AN + iAlarmCount , sAlarmDate + "   " + sAlarmTimeDsp + "   " + sAlarmName + "   " + sAlarmStateText + "   " + sAlarmLocation);
+				DspSetTip(BASE_ALARM_DESCRIPTION_AN + iAlarmCount , sAlarmDate + "   " + sAlarmTimeDsp + "   " + sAlarmName + "   " + sAlarmStateText + "   " + sAlarmLocation);
+				DspSetTip(BASE_ALARM_STATE_AN + iAlarmCount , sAlarmDate + "   " + sAlarmTimeDsp + "   " + sAlarmName + "   " + sAlarmStateText + "   " + sAlarmLocation);
+				IF bMedLgPopup THEN
+					DspSetTip(BASE_ALARM_LOCATION_AN + iAlarmCount , sAlarmDate + "   " + sAlarmTimeDsp + "   " + sAlarmName + "   " + sAlarmStateText + "   " + sAlarmLocation);
+				END
+				
+				//Display alarms
+				IF (sAlarmState = "INACTIVE" OR sAlarmState = "Normal") THEN
+					//Display inactive alarm
+					DspText(BASE_ALARM_DATE_AN + iAlarmCount , hAlarmInactiveFont , sAlarmDate , -1 , LEFT_JUSTIFIED);
+					DspText(BASE_ALARM_TIME_AN + iAlarmCount , hAlarmInactiveFont , sAlarmTimeDsp , -1 , LEFT_JUSTIFIED);
+					DspText(BASE_ALARM_DESCRIPTION_AN + iAlarmCount , hAlarmInactiveFont , sAlarmName , iWidth_Desc , LEFT_JUSTIFIED , TRUNC_WITH_ELLIPSIS);
+					DspText(BASE_ALARM_STATE_AN + iAlarmCount , hAlarmInactiveFont , sAlarmStateText , iWidth_State , LEFT_JUSTIFIED , TRUNC_WITH_ELLIPSIS);
+					IF bMedLgPopup THEN
+						DspText(BASE_ALARM_LOCATION_AN + iAlarmCount , hAlarmInactiveFont , sAlarmLocation , iWidth_Location , LEFT_JUSTIFIED , TRUNC_WITH_ELLIPSIS);
+					END
+					
+				ELSE IF (sAlarmState = "Acknowledged") THEN
+					//Display active acknowledged alarm
+					DspText(BASE_ALARM_DATE_AN + iAlarmCount , hAlarmAckActiveFont , sAlarmDate , -1 , LEFT_JUSTIFIED);
+					DspText(BASE_ALARM_TIME_AN + iAlarmCount , hAlarmAckActiveFont , sAlarmTimeDsp , -1 , LEFT_JUSTIFIED);
+					DspText(BASE_ALARM_DESCRIPTION_AN + iAlarmCount , hAlarmAckActiveFont , sAlarmName , iWidth_Desc , LEFT_JUSTIFIED , TRUNC_WITH_ELLIPSIS);
+					DspText(BASE_ALARM_STATE_AN + iAlarmCount , hAlarmAckActiveFont , sAlarmStateText , iWidth_State , LEFT_JUSTIFIED , TRUNC_WITH_ELLIPSIS);
+					IF bMedLgPopup THEN
+						DspText(BASE_ALARM_LOCATION_AN + iAlarmCount , hAlarmAckActiveFont , sAlarmLocation , iWidth_Location , LEFT_JUSTIFIED , TRUNC_WITH_ELLIPSIS);
+					END
+					
+				ELSE
+					//Display active alarm
+					DspText(BASE_ALARM_DATE_AN + iAlarmCount , hAlarmUnackActiveFont , sAlarmDate , -1 , LEFT_JUSTIFIED);
+					DspText(BASE_ALARM_TIME_AN + iAlarmCount , hAlarmUnackActiveFont , sAlarmTimeDsp , -1 , LEFT_JUSTIFIED);
+					DspText(BASE_ALARM_DESCRIPTION_AN + iAlarmCount , hAlarmUnackActiveFont , sAlarmName , iWidth_Desc , LEFT_JUSTIFIED , TRUNC_WITH_ELLIPSIS);
+					DspText(BASE_ALARM_STATE_AN + iAlarmCount , hAlarmUnackActiveFont , sAlarmStateText , iWidth_State , LEFT_JUSTIFIED , TRUNC_WITH_ELLIPSIS);
+					IF bMedLgPopup THEN
+						DspText(BASE_ALARM_LOCATION_AN + iAlarmCount , hAlarmUnackActiveFont , sAlarmLocation , iWidth_Location , LEFT_JUSTIFIED , TRUNC_WITH_ELLIPSIS);
+					END
+					
+				END	END
+
+				
+				//Determine max alarm string extent (Used to line up state text column)
+				//IF (DspGetAnRight(BASE_ALARM_DESCRIPTION_AN + iAlarmCount) > iMaxAlarmExtent) THEN
+				//	iMaxAlarmExtent = DspGetAnRight(BASE_ALARM_DESCRIPTION_AN + iAlarmCount);
+				//END
+				
+				//Increment alarm count
+				iAlarmCount = iAlarmCount + 1;	
+				
+			//No more alarms to display		
+			ELSE IF (hAlarmRecord = ALARM_EOF) THEN
+				//Blank alarm text
+				DspText(BASE_ALARM_DATE_AN + iAlarmCount , hAlarmAckActiveFont , "");
+				DspText(BASE_ALARM_TIME_AN + iAlarmCount , hAlarmAckActiveFont , "");
+				DspText(BASE_ALARM_DESCRIPTION_AN + iAlarmCount , hAlarmAckActiveFont , "");
+				DspText(BASE_ALARM_STATE_AN + iAlarmCount , hAlarmAckActiveFont , "");
+				IF bMedLgPopup THEN
+					DspText(BASE_ALARM_LOCATION_AN + iAlarmCount , hAlarmAckActiveFont , "");
+				END
+
+				DspSetTip(BASE_ALARM_DATE_AN + iAlarmCount , "");
+				DspSetTip(BASE_ALARM_TIME_AN + iAlarmCount , "");
+				DspSetTip(BASE_ALARM_DESCRIPTION_AN + iAlarmCount , "");
+				DspSetTip(BASE_ALARM_STATE_AN + iAlarmCount , "");
+				IF bMedLgPopup THEN
+					DspSetTip(BASE_ALARM_LOCATION_AN + iAlarmCount , "");
+				END
+				
+				//Increment alarm count
+				iAlarmCount = iAlarmCount + 1;		
+			END END
+			
+			//Get next unacknowledged alarm record
+			IF hAlarmRecord <> ALARM_EOF THEN
+				hAlarmRecord = rpcAlarmQueryNextRec(hRPC, hAlarmRecord);
+			END
+			
+			//Reduce CPU Usage
+			SleepMS(1);
+		END //End alarm display WHILE loop
+		
+		//Reset alarm count
+		iAlarmCount = 0;
+		
+		//Sleep task
+		SleepMS(1000);	
+	END //End infinite task loop
+END
+
+
+
+////////////////////////////////////////////////////////////////////////
+// UTILITY FUNCTIONS                                             	  //
+// Description - These functions are used by POPUP Functions to       //
+//				 perform various functional tasks.					  //
+////////////////////////////////////////////////////////////////////////
+
+//Description - Prepares popup to be used
+//Caller 	  - "On Page Entry" graphics page event
+//				sBitmap  -> Graphic image displayed on popup. Defaults to showing no bitmap
+//					Example: "ES_Popup.CM4000" where the format is LIBRARY.SYMBOLNAME 
+FUNCTION InitializeStandardPopup(STRING sBitmap = "")
+	//Local Variables
+	INT iCount;
+	INT iDigitalCount;
+	
+	//Store current event handler (Used to disable mouse click detection on popup exit)
+	PRIOR_KEY_EVENT_HANDLE = GetEvent(1);
+		
+	//Detect right mouse clicks on alarms
+	OnEvent(1, _GetButtonPress);
+
+	//Set device bitmap (unused)
+	IF (sBitmap <> "") THEN
+		//Remove prior graphic
+		DspDel(1000);
+		
+		//Display new graphic
+		DspSym(1000 , sBitmap);
+		
+		//Right justify image inside alarm banner
+		DspAnMove(1000 , (StrToInt(PageInfo(PAGE_WIDTH)) - 16 - DspGetAnWidth(1000)) , BITMAP_Y_COORDINATE + DspGetAnHeight(1000));
+	END
+	
+	//Clear design time digital symbols
+	FOR iCount = 1 TO StrToInt(ParameterGet("ES_Popup" , "MaxDigital" , "20")) DO
+		DspDel(1200 + iCount);
+	END
+END
+
+
+
+//Description - Clean up on when closing popup
+//Caller 	  - "On Page Exit" graphics page event
+//Args	      - None
+FUNCTION UninitializePopup()
+	//Disables OnEvent mouse click detection
+	SetEvent(1, PRIOR_KEY_EVENT_HANDLE);
+END
+
+
+
+//Description - Clean up on when closing popup
+//Caller 	  - "On Page Exit" graphics page event
+//Args	      - None
+FUNCTION SetPopupDefaultColorScheme()
+	zES\Box_Fill_Color = ParameterGet("ES_Popup" , "DefaultFillColor" , "0");
+	zES\Box_Border_Color = ParameterGet("ES_Popup" , "DefaultBorderColor" , "0");
+	zES\Box_Gradient_Mode = ParameterGet("ES_Popup" , "DefaultGradientMode" , "0");
+	zES\Background_Color = ParameterGet("ES_Popup" , "DefaultBackgroundColor" , "0");
+END
+
+
+
+//Description - OnEvent function call to detect mouse clicks
+//Caller 	  - InitializeStandardPopup via OnEvent callback
+//Args	      - None
+//Return	  - 0 for success
+INT FUNCTION _GetButtonPress()
+	//Local variables
+	INT	nKey;
+
+	//Check last key pressed
+	nKey = KeyPeek(0);
+
+	//Check if right mouse down click
+	IF (nKey = 0x0802) OR (nKey = 0x606) THEN
+		//Execute command in seperate thread
+		//(OnEvent callback must be non-blocking)
+		TaskNew("_ShowPopupAlarmMenu", "", 8);
+	END //end if
+	
+	//(OnEvent must return INT)
+	RETURN(0);
+END //end function
+
+
+
+//Description - Action function when right mouse click detected
+//Caller 	  - _GetButtonPress via task
+//Args	      - None
+FUNCTION _ShowPopupAlarmMenu()
+	//Local variables
+	INT iXMouse;
+	INT iYMouse;
+	INT iAN;
+	INT hInfo;
+	STRING sObjectText;
+	
+	//Get the mouse position
+	DspGetMouse(iXMouse , iYMouse);
+	
+	//Retrieve AN clicked on
+	iAN = DspGetAnFromPoint(iXMouse , iYMouse);
+	
+	//Create object info handle
+	hInfo = DspInfoNew(41);
+	
+	//Get object expression text
+	sObjectText = StrRight(DspInfo(hInfo , 2 , 0) , StrLength(DspInfo(hInfo , 2 , 0)) - 3);
+	
+	//Dispose of object info handle
+	DspInfoDestroy(hInfo);
+	
+	//Check if alarm AN clicked on
+	SELECT CASE iAN
+		CASE 1001 , 1051 , 1101 , 1151, 1401
+			PopupAlarmMenu(sObjectText , 1);
+		CASE 1002 , 1052 , 1102 , 1152, 1402
+			PopupAlarmMenu(sObjectText , 2);
+		CASE 1003 , 1053 , 1103 , 1153, 1403
+			PopupAlarmMenu(sObjectText , 3);
+		CASE 1004 , 1054 , 1104 , 1154, 1404
+			PopupAlarmMenu(sObjectText , 4);
+		CASE 1005 , 1055 , 1105 , 1155, 1405
+			PopupAlarmMenu(sObjectText , 5);
+		CASE ELSE
+			RETURN;
+	END SELECT
+END //end function
+
+
+//Description - Displays alarm menu on right click
+//Caller 	  - _ShowPopupAlarmMenu via function call
+//Args	      - iAlarmRow -> Alarm row that was clicked 1-5. No default (Required)
+//					Example: 1 for row #1 or 5 for row #5
+FUNCTION PopupAlarmMenu(STRING sDevice , INT iAlarmRow)
+	//Local variables
+	INT hAlarmRecord;
+	INT iAlarmCount;
+	INT iSelection;
+	INT hRPC;
+	INT bFoundAlarm;
+	STRING sCluster;
+	STRING sCustom1;
+	STRING sOnUTC;
+	STRING sOnMilli;
+
+	//Open RPC message session to alarm server
+	hRPC = MsgOpen("Alarm" , 0 , 0 , "");
+
+	//Reset loop variables
+	iAlarmCount = 0;
+	bFoundAlarm = 0;
+	
+	//Get first alarm record
+	hAlarmRecord = StrToInt(MsgRPC(hRPC , "_AlarmQueryFirstRec" , "0,0,-1" , 0));
+	
+	//Get alarm handle of alarm clicked
+	WHILE(hAlarmRecord <> ALARM_EOF AND bFoundAlarm = 0) DO
+		//Next alarm matches I/O device
+		IF (MsgRPC(hRPC , "AlarmGetFieldRec" , IntToStr(hAlarmRecord) + ",^"Custom1^"" , 0) = sDevice) THEN
+			//Increment alarm count
+			iAlarmCount = iAlarmCount + 1;
+			
+			//Found alarm on iAlarmRow
+			IF(iAlarmCount = iAlarmRow) THEN
+				bFoundAlarm = 1;
+			END //end if
+		END //end if
+		
+		//Get next unacknowledged alarm record
+		IF (bFoundAlarm = 0) THEN
+			hAlarmRecord = StrToInt(MsgRPC(hRPC , "_AlarmQueryNextRec" , IntToStr(hAlarmRecord) + ",0,0,-1" , 0));
+		END //end if
+	END //end while
+	
+	IF (hAlarmRecord <> ALARM_EOF) THEN
+		//Construct menu - Ack
+		IF GetPriv(2, 0) THEN
+			DspPopupMenu(0 , "Acknowledge");
+		ELSE
+			DspPopupMenu(0 , "!Acknowledge");
+		END //end if
+		
+		//Construct menu - Disable
+		IF GetPriv(6, 0) THEN
+			DspPopupMenu(0 , "Disable");
+		ELSE
+			DspPopupMenu(0 , "!Disable");
+		END //end if
+		
+		//Construct menu - Waveform captures
+		IF (GetPriv(2, 0) AND StrLeft(MsgRPC(hRPC , "AlarmGetFieldRec" , IntToStr(hAlarmRecord) + ",^"Custom2^"" , 0) , 8) = "Waveform") THEN
+			DspPopupMenu(0 , "Waveform Captures");
+		ELSE
+			DspPopupMenu(0 , "!Waveform Captures");
+		END //end if
+		
+		//Show menu and get user selection
+		iSelection = DspPopupMenu();
+		
+		//Set values from alarm records
+		sCluster = MsgRPC(hRPC , "AlarmGetFieldRec" , IntToStr(hAlarmRecord) + ",^"Cluster^"" , 0);
+		sCustom1 = MsgRPC(hRPC , "AlarmGetFieldRec" , IntToStr(hAlarmRecord) + ",^"Custom1^"" , 0);
+		sOnUTC = MsgRPC(hRPC , "AlarmGetFieldRec" , IntToStr(hAlarmRecord) + ",^"OnUTC^"" , 0);
+		sOnMilli = MsgRPC(hRPC , "AlarmGetFieldRec" , IntToStr(hAlarmRecord) + ",^"OnMilli^"" , 0);
+		
+		//Acknowledge selected
+		IF (iSelection = 1) THEN
+			//Acknowledge alarm
+			MsgRPC(hRPC , "AlarmAckRec" , IntToStr(hAlarmRecord) + ",^"" + sCluster + "^"" , 0);
+		//Disable selected
+		ELSE IF (iSelection = 2) THEN
+			MsgRPC(hRPC , "AlarmDisableRec" , IntToStr(hAlarmRecord) + ",^"" + sCluster + "^"" , 0);
+		//Waveform captures selected
+		ELSE IF (iSelection = 3) THEN
+			//Show waveform capture
+			PLSGetWaveformPath(sCluster , sCustom1 , sOnUTC , sOnMilli);	
+		END END END //end if
+		
+	//Alarm not found (Already acknowledged?)
+	ELSE
+		Message("Information","The alarm you clicked on is no longer available for this operation." , 0);
+	END //end if
+	
+	//Close RPC message sessino to alarm server
+	MsgClose("Alarm" , hRPC);
+END //end function
+
+
+
+//Description - Returns alarm state text to be displayed
+//Caller 	  - ES_Popup_AlarmTask via function call
+//Args	      - sDescription -> Alarm database description field text
+//					Example: "Yes,No" where format is "ACTIVE,INACTIVE"
+//				sState       -> Alarm state (On or Off)
+//					Example: "ACTIVE" or "INACTIVE or "High" or "Normal" or "Acknowledged"
+//				sAlarmType   -> The type of alarm. Either ANALOG or OTHER
+//Return	  - Alarm state text to be displayed
+STRING FUNCTION SetAlarmStateText(STRING sDescription , STRING sState , STRING sAlarmType)
+	//Local variables
+	STRING sStateText = "";
+
+	//Analog alarm type
+	//For Active sState is "ACTIVE"
+	//For all other states LogState is LOW/LOW LOW/HIGH
+	IF (sAlarmType = "ANALOG") THEN
+		//Alarm in Normal state
+		IF (sState = "Normal") THEN
+			IF (ParameterGet("AlarmStateText" , "OFF" , "Normal") <> "") THEN
+				RETURN ParameterGet("AlarmStateText" , "OFF" , "Normal");
+			ELSE
+				RETURN "Normal";
+			END //end if
+		//Alarm is Acknowledged
+		ELSE IF (sState = "Acknowledged") THEN
+			//Check if citect.INI parameter set
+			IF (ParameterGet("AlarmStateText" , "ACK" , "Acknowledged") <> "") THEN
+				RETURN ParameterGet("AlarmStateText" , "ACK" , "Acknowledged");
+			ELSE
+				RETURN "Acknowledged";
+			END	//end if
+		//Alarm is Low , Low Low , High , High High
+		ELSE
+			RETURN sState;
+		END END //end if
+	END //end if
+	
+	//Other alarm types
+	//Description field populated (Correctly in format of ACTIVE,INACTIVE)
+	IF (StrLength(sDescription) > 1 AND StrSearch(0 , sDescription , ",") <> NO_MATCH_FOUND) THEN
+		//State inactive
+		IF (sState = "INACTIVE") THEN
+			sStateText = StrRight(sDescription , StrLength(sDescription) - StrSearch(0 , sDescription , ",") - 1);
+		ELSE IF (sState = "Acknowledged") THEN
+			//Check if citect.INI parameter set
+			IF (ParameterGet("AlarmStateText" , "ACK" , "Acknowledged") <> "") THEN
+				sStateText = ParameterGet("AlarmStateText" , "ACK" , "Acknowledged");
+			ELSE
+				sStateText = "Acknowledged";
+			END //end if
+		//State active
+		ELSE
+			sStateText = StrLeft(sDescription , StrSearch(0 , sDescription , ","));
+		END END //end if
+	//Description field not populated
+	ELSE 
+		//State inactive
+		IF (sState = "INACTIVE") THEN
+			//Check if citect.INI parameter set
+			IF (ParameterGet("AlarmStateText" , "OFF" , "Normal") <> "") THEN
+				sStateText = ParameterGet("AlarmStateText" , "OFF" , "Normal");
+			ELSE
+				sStateText = "Normal";
+			END //end if
+		//State Acknowledged
+		ELSE IF (sState = "Acknowledged") THEN
+			//Check if citect.INI parameter set
+			IF (ParameterGet("AlarmStateText" , "ACK" , "Acknowledged") <> "") THEN
+				sStateText = ParameterGet("AlarmStateText" , "ACK" , "Acknowledged");
+			ELSE
+				sStateText = "Acknowledged";
+			END //end if
+		//State Active
+		ELSE
+			//Check if citect.INI parameter set
+			IF (ParameterGet("AlarmStateText" , "ON" , "Alarm") <> "") THEN
+				sStateText = ParameterGet("AlarmStateText" , "ON" , "Alarm");
+			ELSE
+				sStateText = "Alarm";
+			END //end if
+		END END //end if
+	END //end if
+	
+	//Return alarm state text
+	//Priority listed from left to right with left being highest and right being lowest
+	//(Alarm Description field , AlarmStateText citect.INI parameter, and default string)
+	RETURN sStateText;
+END //end function
+
+
+
+//Description - Determines whether the displayed alarm string is overflowing (Over bitmap or off screen)
+//Caller 	  - ES_Popup_AlarmTask via function call
+//Args	      - iAlarmAN 	-> Base animation number of alarm to check
+//					Example: BASE_ALARM_AN or BASE_STATE_AN
+//				iAlarmCount -> Alarm row number
+//					Example: 1 for row #1 or 5 for row #5
+//				sText		-> Alarm string displayed to check
+//					Exampe: "01/12/11  00:20:30  Swell Voltage A-B" or "Alarm"
+//Return	  - 1 for overflow detected or 0 for no overflow detected
+INT FUNCTION DetermineAlarmStringOverflow(INT iAlarmAN , INT iAlarmCount , STRING sText)
+	IF ((DspGetAnRight(iAlarmAN + iAlarmCount) > (DspGetAnLeft(BITMAP_AN) - ALARM_PIXEL_BUFFER)) AND (DspGetAnLeft(BITMAP_AN) <> 0)) THEN
+		//Reduce alarm string by one character until it is within boundary
+		WHILE (DspGetAnRight(iAlarmAN + iAlarmCount) > (DspGetAnLeft(BITMAP_AN) - ALARM_PIXEL_BUFFER)) DO
+			//Remove one character from alarm string
+			sText = StrLeft(sText , StrLength(sText) - 1);
+			
+			//Set alarm string again
+			DspText(iAlarmAN + iAlarmCount , DspAnInfo(iAlarmAN + iAlarmCount , 1) , sText);
+		END	
+		
+		//Flag overflow
+		RETURN 1;
+	ELSE IF (DspGetAnRight(iAlarmAN + iAlarmCount) > (StrToInt(PageInfo(PAGE_WIDTH)) - 12 - ALARM_PIXEL_BUFFER)) THEN	
+		//Reduce alarm string by one character until it is within boundary
+		WHILE (DspGetAnRight(iAlarmAN + iAlarmCount) > (StrToInt(PageInfo(PAGE_WIDTH)) - 12 - ALARM_PIXEL_BUFFER)) DO
+			//Remove one character from alarm string
+			sText = StrLeft(sText , StrLength(sText) - 1);
+			
+			//Set alarm string again
+			DspText(iAlarmAN + iAlarmCount , DspAnInfo(iAlarmAN + iAlarmCount , 1) , sText);
+		END						
+		
+		//Flag overflow
+		RETURN 1;								
+	END END//End overflow IF statement
+	
+	//No overflow
+	RETURN 0;
+END
+
+
+
+//Description - Delimits an associated INTEGER/LONG
+//Caller 	  - Graphics page display values
+//Args	      - iNumber 	-> Number to delimit
+//					Example: 14829
+//				sAssText 	-> Association to delimit
+//					Example: "Voltage_AB" for ?Voltage_AB?
+//				sDelimiter	-> Delimiter string. Defaults to a comma
+//					Example: "," or "." or " "
+//Return	  - Delimited value
+STRING FUNCTION DelimitAssInt(INT iNumber , STRING sAssText , STRING sDelimiter = ",")
+	//Local Variables
+	STRING sResult;
+	STRING sNumber;
+	STRING sSign;
+	
+	//If association for number is valid
+	IF (AssInfo(sAssText , 0) <> "") THEN
+		//If NaN (Not-a-Number) is the value
+		IF(iNumber = -2147483648) THEN
+			RETURN "N/A";
+		END
+		
+		//Convert number to character string
+		sNumber = IntToStr(iNumber);
+		
+		//Filter out and save number sign (+/-)
+		IF (StrLeft(sNumber , 1) = "-") THEN
+			sSign = "-";
+			sNumber = StrRight(sNumber , (StrLength(sNumber) - 1));
+		ELSE
+			sSign = "";
+		END
+		
+		//Grab one digit at a time
+		WHILE (sNumber <> "") DO
+			//Append next digit to result
+			sResult = StrRight(sNumber , 1) + sResult;
+			
+			//Remove last digit from number
+			sNumber = StrLeft(sNumber , (StrLength(sNumber) - 1));
+			
+			//If next digit is 4th digit and the number has more digits      
+			IF ((StrLength(sResult) + 1) MOD 4 = 0) AND (StrLength(sNumber) >= 1) THEN
+				//Add delimiter
+				sResult = sDelimiter + sResult;
+			END
+		END 
+	
+		//Restore sign and return delimited number
+		RETURN sSign + sResult;
+	ELSE
+		RETURN ParameterGet("Page" , "PopupBadAssText" , "N/A");
+	END
+END 
+
+
+
+//Description - Delimits an associated REAL
+//Caller 	  - Graphics page display values
+//Args	      - iNumber 	-> Number to delimit
+//					Example: 3.14159
+//				sAssText 	-> Association to delimit
+//					Example: "Voltage_AB" for ?Voltage_AB?
+//				sDelimiter	-> Delimiter string. Defaults to a comma
+//					Example: "," or "." or " "
+//Return	  - Delimited value
+STRING FUNCTION DelimitAssReal(REAL rNumber , STRING sAssText , INT iWidth = 10 , INT iPlaces = 1 , STRING sDelimiter = ",")
+	//Local Variables
+	STRING sResult;
+	STRING sNumber;
+	STRING sDecimal;
+	STRING sSign;
+	
+	//If association for number is valid
+	IF (AssInfo(sAssText , 0) <> "") THEN
+		//Convert number to string (Remove sign)
+		sNumber = StrTrim(RealToStr(rNumber , iWidth , iPlaces));
+		
+		//If NaN (Not-a-Number) is the value
+		IF StrSearch(0, sNumber, "$") <> -1 OR StrSearch(0, sNumber, "#") <> -1 THEN
+			RETURN "N/A";
+		END
+		
+		//Filter out and save number sign (+/-)
+		IF (StrLeft(sNumber , 1) = "-") THEN
+			sSign = "-";
+			sNumber = StrRight(sNumber , (StrLength(sNumber) - 1));
+		ELSE
+			sSign = "";
+		END
+		
+		//Filter out and save number decimals
+		sDecimal = StrRight(sNumber , StrLength(sNumber) - StrSearch(0 , sNumber , "."));
+		
+		//Reduce sNumber to whole numbers
+		sNumber = StrLeft(sNumber , StrSearch(0 , sNumber , "."));
+	
+		//Grab one digit at a time
+		WHILE (sNumber <> "") DO
+			//Append next digit to result
+			sResult = StrRight(sNumber , 1) + sResult;
+			
+			//Remove last digit from number
+			sNumber = StrLeft(sNumber , (StrLength(sNumber) - 1));
+			
+			//If next digit is 4th digit and the number has more digits      
+			IF ((StrLength(sResult) + 1) MOD 4 = 0) AND (StrLength(sNumber) >= 1) THEN
+				//Add delimiter
+				sResult = sDelimiter + sResult;
+			END
+		END 
+	
+		//Restore sign and return delimited number
+		RETURN sSign + sResult + sDecimal;
+	ELSE
+		RETURN ParameterGet("Page" , "PopupBadAssText" , "N/A");
+	END
+END 
+
+
+
+//Description - Formats power factor string
+//Caller 	  - Graphics page display values
+//Args	      - iPF 	 -> PF value
+//					Example: -0.958
+//				sAssText -> Association to delimit
+//					Example: "Power_Factor" for ?Power_Factor?
+//Return	  - Formatted PF string
+STRING FUNCTION ShowAssPF(REAL iPF , STRING sAssText)
+	IF (AssInfo(sAssText , 0) <> "") THEN
+		IF (iPF < 0) THEN
+			RETURN (RealToStr((iPF * -1) , 5 , 3) + " Lagging");
+		ELSE IF (iPF > 0) THEN
+			RETURN (RealToStr(iPF , 5 , 3) + " Leading");
+		ELSE
+			RETURN RealToStr(iPF , 5 , 3);
+		END END
+	ELSE
+		RETURN ParameterGet("Page" , "PopupBadAssText" , "N/A");
+	END
+END
+
+
+
+//Description - Formats wire type string
+//Caller 	  - Graphics page display values
+//Args	      - iType 	 -> Wire type value
+//					Example: 31
+//				sAssText -> Association to delimit
+//					Example: "Wire_Type" for ?Wire_Type?
+//Return	  - Formatted wire type string
+STRING FUNCTION ShowPLWireType(INT iType , STRING sAssText)
+	IF (AssInfo(sAssText , 0) <> "") THEN
+		SELECT CASE iType
+			CASE 30
+				RETURN "3 Wire 2CT";
+			CASE 31
+				RETURN "3 Wire 3CT";
+			CASE 40
+				RETURN "4 Wire 3CT ";
+			CASE 41
+				RETURN "4 Wire 4CT";
+			CASE 42
+				RETURN "4 Wire 3CT/2PT";
+			CASE 43
+				RETURN "4 Wire 4CT/2PT";
+			CASE ELSE
+				RETURN "Unknown Type : " + IntToStr(iType);
+		END SELECT
+	ELSE
+		RETURN ParameterGet("Page" , "PopupBadAssText" , "N/A");
+	END
+END 
+
+
+
+//Description - Formats datetime string
+//Caller 	  - Graphics page display values
+//Args	      - iDateTime	-> Datetime LONG value
+//					Example: 241949120
+//Return	  - Formatted datetime string
+STRING FUNCTION ShowMeterTime(INT iDateTime)
+	IF(iDateTime = -1) THEN
+		RETURN "";
+	ELSE
+		RETURN TimeToStr(iDateTime , 3 , 1) + " " + TimeToStr(iDateTime , 1 , 1);
+	END
+END
+
+
+
+//Description - Displays webpage in another window
+//Caller 	  - Graphics page toolbar button "Input Up" command
+//Args	      - sPage	 -> Name of page to load webpage in
+//					Example: "!Webpage"
+//				sLink	 -> Link for the webpage
+//					Example: "http://10.10.10"
+//				sCluster -> The cluster the device residues in. Defaults to active cluster
+//					Example: "MyCluster" if you have a cluster in cluster.DBF named "MyCluster"
+//            - sTitle   -> Custom page titlebar title string
+FUNCTION Webpage_Show(STRING sPage, STRING sLink, STRING sCluster = "", STRING sTitle = "Internet Explorer Plug-in")
+	//Local variables
+	INT iMouseX;
+	INT iMouseY;
+	INT hWin;
+	
+	//Get mouse position
+	DspGetMouse(iMouseX , iMouseY); 
+	
+	//No link given
+	IF (sLink = "") THEN
+		Message("Information","Link not configured", 64);
+	ELSE
+		ESAssNum(1 , "'" + sLink + "'" , sCluster);
+	
+		hWin = WinNewAt(sPage , iMouseX + StrToInt(PageInfo(14)) , iMouseY + StrToInt(PageInfo(15)) , DEFAULT_WINDOW_MODE - 512 - 4);
+		
+		//Ensure popup window opened
+		IF (hWin <> WINDOW_OPEN_FAILED) THEN
+			//Set Window Title
+			WinTitle(sTitle);
+		END
+	END
+END
+
+
+
+//Description - Displays webpage in current window
+//Caller 	  - "On Page Entry" graphics event
+//				sLink	 -> Link for the webpage
+//					Example: "http://10.10.10"
+//				iX1, iY1, iX2, and iY2	-> Specify the starting and ending window positions
+FUNCTION DisplayWebpage (STRING sLink, INT iX1 = 0, INT iY1 = 0, INT iX2 = 1000, INT iY2 = 632)
+	CreateControlObject("Chrome Browser" , "Web Browser" , iX1 , iY1 , iX2 , iY2);
+	_Objectcallmethod(ObjectByName("Web Browser") , "Navigate" , sLink , "" , "" , "" , "");
+END
+
+
+
+//Description - Display dynamic color selection menu
+//Caller 	  - Graphics page icon button "Input Up" command
+//Args	      - sCluster -> The cluster the device residues in. Defaults to active cluster
+//					Example: "MyCluster" if you have a cluster in cluster.DBF named "MyCluster"
+FUNCTION ColorSelection_MenuShow(STRING sCluster = "")
+	//Local variables
+	INT iSelection;
+
+	//Construct menu
+	DspPopupMenu(0 , "Perimeter Color,Fill Color,Gradient Filled>1,Background Color, Text/Button Color Mode>2");
+	DspPopupMenu(1 , "Yes,No");
+	DspPopupMenu(2 , "Normal,Inverted");
+	
+	//Show menu and get user selection
+	iSelection = DspPopupMenu();
+	
+	SELECT CASE iSelection
+		CASE 1
+			//Show color selector for box perimeter color
+			ColorSelection_Show("zES\Box_Border_Color" , "Box Border Color Selection" , sCluster);
+		CASE 2
+			//Show color selector for box primary fill color
+			ColorSelection_Show("zES\Box_Fill_Color" , "Box Fill Color Selection" , sCluster);
+		CASE 101
+			//Enable Gradient Fill
+			zES\Box_Gradient_Mode = 0;
+		CASE 102
+			//Disable Gradient Fill
+			zES\Box_Gradient_Mode = 1;
+		CASE 3
+			//Show color selector for popup background color
+			ColorSelection_Show("zES\Background_Color" , "Popup Background Color Selection" , sCluster);
+		CASE 201
+			//Set Color mode to Normal (black text color, light button color)
+			zES\ColorInvert_Mode = 0;
+		CASE 202
+			//Set Color mode to Inverted (white text color, dark button color)
+			zES\ColorInvert_Mode = 1;
+	END SELECT
+END
+
+
+
+//Description - Displays dynamic color selection window
+//Caller 	    - ColorSelection_MenuShow function call
+//Args	      - sColorVariable -> Tag where color number selected is stored
+//					  Example: zES\BackgroundColor
+//				    sTitle -> Title of color selection window.
+//					  Example: "Background Color Selection"
+//				    sCluster -> The cluster the device residues in. Defaults TO active cluster
+//					  Example: "MyCluster" if you have a cluster in cluster.DBF named "MyCluster"
+FUNCTION ColorSelection_Show(STRING sColorVariable , STRING sTitle = (sColorVariable + " Color Selection"), STRING sCluster = "")
+	//Local variables
+	INT iMouseX;
+	INT iMouseY;
+	INT hWin;
+	INT iError = 0;
+	
+	//Get mouse position
+	DspGetMouse(iMouseX , iMouseY); 
+	
+
+	//Association
+	iError = iError OR EsAssText("Color_Value" , sColorVariable , sCluster);
+	iError = iError OR ESAssText("Color_Variable" , "'" + sColorVariable + "'" , sCluster);
+	iError = iError OR ESAssText("Cluster" , "'" + sCluster + "'" , sCluster);
+	
+	//Errors detected
+	IF (iError <> 0) THEN
+		Message("Warning" , "Color Selector has invalid color tag.^nPlease check the color tag argument to ensure it is correct." , 48);
+	END
+	
+	//Create popup window	
+	hWin = WinNewAt("!ES_ColorSelection" , iMouseX + StrToInt(PageInfo(14)) , iMouseY + StrToInt(PageInfo(15)) , DEFAULT_WINDOW_MODE - 128);
+	
+	//Ensure popup window opened
+	IF (hWin <> WINDOW_OPEN_FAILED) THEN
+		//Set window title
+		WinTitle(sTitle);
+	END
+END
+
+
+
+//Description - Displays a historical trend window with default selected pens
+//Caller 	  - Graphics page toolbar button "Input UP" command
+//Args	      - sDevice  -> Name of device to find alarms for. No default (Required parameter)
+//					Example: "MyCM4000" if you have a device in units.DBF named "MyCM4000"
+//				sCluster -> The cluster the device residues in. Defaults to active cluster
+//					Example: "MyCluster" if you have a cluster in cluster.DBF named "MyCluster"
+FUNCTION HistoricalTrends_Show(STRING sDevice , STRING sCluster = "" , INT iActivePens = 3, STRING sTrendTimeSpan = "")
+	//Local variables
+	INT iMouseX;
+	INT iMouseY;
+	INT hWin;
+	INT iTrnBrowser;
+	INT iTrnRecs;
+	INT iTrendTimeSpan;
+	INT iHour;
+	INT iMin;
+	INT i = 1;
+	OBJECT 	hAnalyst;
+	OBJECT  hCommandSystem;
+	OBJECT  hCommand;
+	OBJECT 	hPanes;
+	OBJECT 	hPane;
+	OBJECT	hPens;
+	OBJECT	hPen1 , hPen2 , hPen3;
+	OBJECT	hNewCursor;
+	OBJECT  hPen;
+	OBJECT  hObjectView;
+	OBJECT  hColumns;
+	OBJECT  hColumn;
+	OBJECT  hCursors;
+	OBJECT  hCursor;
+	STRING  sTag;
+	STRING  sComment;
+	
+	//Get mouse position
+	DspGetMouse(iMouseX , iMouseY);
+	
+	//Set trend timespan
+	iTrendTimeSpan = StrToTime(sTrendTimeSpan);
+	IF iTrendTimeSpan > 0 THEN
+		IF iTrendTimeSpan < 60 THEN
+			iTrendTimeSpan = 60;		//No less than 1 min.
+		END 
+		iHour = ES_GetHour(iTrendTimeSpan);
+		iMin = ES_GetMin(iTrendTimeSpan);
+	ELSE
+		iHour = 1;						//default 1 hour.
+		IsError();						//clear error.
+	END
+	
+	ES_AssocStrS("Device", sDevice, sCluster);
+
+	//Display custom trend window
+	hWin = WinNewAt("!ES_Historical_Trending" , StrToInt(PageInfo(14)) + iMouseX , StrToInt(PageInfo(15)) + iMouseY , DEFAULT_WINDOW_MODE);
+	
+	//Ensure popup window opened
+	IF (hWin <> WINDOW_OPEN_FAILED) THEN
+		//Set window title
+		WinTitle("Historical Trends");
+		
+		//Allow window to load
+		SleepMS(100);
+	END
+	
+	//Set process analyst handle
+	hAnalyst = ObjectByName("AN502");
+	
+	//Set command system handle (unused)
+	hCommandSystem = _ObjectGetProperty(hAnalyst, "CommandSystem");
+
+	//Set panes handle
+	hPanes = _ObjectGetProperty(hAnalyst, "Panes");
+	
+	//Get Objectview handle
+	hObjectView = _ObjectGetProperty(hAnalyst, "ObjectView");
+	
+	//Get Columns handle
+	hColumns = _ObjectGetProperty(hObjectView, "Columns");
+	
+	//Block updates
+	_ObjectCallMethod(hAnalyst, "BlockUpdates");
+
+	//Get pane handle
+	hPane = _ObjectCallMethod(hPanes , "get_ItemByName", "Historical Trends");
+	
+	//If not there, create it
+	IF IsError() <> 0 THEN
+		hPane = _ObjectCallMethod(hPanes , "Create", "Historical Trends");
+	END
+	
+	//Get pens handle
+	hPens = _ObjectGetProperty(hPane , "Pens");
+	
+	//Remove any existing pens
+	_ObjectCallMethod(hPens , "RemoveAll");
+	
+	//Remove Comments column
+	_ObjectCallMethod(hColumns, "Hide", "Comment");
+	
+	//Set Object Tree column width to 320
+	hColumn = _ObjectCallMethod(hColumns, "get_Item", 1);
+	_ObjectSetProperty(hColumn, "Width", 320);
+	
+
+	//Add pen for each tag
+	//Tagname not available to filter by, so instead filter on expression, which is the variable tag name
+	iTrnBrowser = TrnBrowseOpen(sDevice + "*", "EXPRESSION"); 
+	iTrnRecs = TrnBrowseNumRecords(iTrnBrowser); //number of trend tags for that device
+	TrnBrowseFirst(iTrnBrowser);
+	FOR i = 1 TO iTrnRecs DO
+		sTag = TrnBrowseGetField(iTrnBrowser, "EXPRESSION");  //again, get variable tag name
+		//sComment = sDevice + " " + StrToLocalText(TagInfo(sTag, 16));  //set comment to comment of variable tag
+		sComment = StrToLocalText(TagInfo(sTag, 16));  //set comment to comment of variable tag
+		//create pen with random color (alternative is to have massive color array)
+		hPen = ES_PA_AddPen(hPens, sTag, sComment, PackedRGB(Rand(256), Rand(256), Rand(256)), iHour, iMin);  
+		//Disable all but first three pens
+		IF i > iActivePens THEN
+			_ObjectSetProperty(hPen, "Visible", 0);
+		END
+		TrnBrowseNext(iTrnBrowser);
+	END
+	TrnBrowseClose(iTrnBrowser);
+	
+	//Create cursor on far-right of graph
+	hCursors = _ObjectGetProperty(hAnalyst, "Cursors");
+	hCursor = _ObjectCallMethod(hCursors, "Create", "Cursor1", 680);
+
+	//Relocate ("hide") the cursor labels to right of cursor (well off-screen)
+	FOR i = 1 TO iActivePens DO
+		IF i <= iTrnRecs THEN
+			hPen = _ObjectCallMethod(hPens, "get_Item", i);
+			_ObjectCallMethod(hCursor, "put_PenLabelX", hPen, 700);
+		END
+	END
+	
+	//Toggle Cursor Labels button Off (does not work)
+	//hCommand = _ObjectCallMethod(hCommandSystem, "get_ItemById", "Citect_Command_ToggleCursorLabels");
+	//Message("Test", _ObjectGetProperty(hCommand, "Tooltip") + ":  " + _ObjectGetProperty(hCommand, "Pressed"), 0);	//Test only
+	//_ObjectSetProperty(hCommand, "Pressed", 0);	//Get Object Automation Exception, result code 0x8000
+
+	//Unblock Updates
+	_ObjectCallMethod(hAnalyst , "UnblockUpdates");
+
+END
+
+
+
+//Description   - Adds a pen to current historical trend window
+//Caller 	      - HistoricalTrends_Show via function call
+//Args	        - hPens      -> Trends pens handle
+//					    Example: 4218
+//				      sTagname   -> Tag name to trend
+//					    Example: "CM4000\MMXU1\PPV\AB"
+//				      sComment   -> Comment for trend pen
+//					    Example: "Voltage A-B"
+//				      iLineColor -> Line color of trend pen
+//					    PackedRGB(255 , 0 , 0) for RED
+//Return	  - Created pen handle
+OBJECT FUNCTION ES_PA_AddPen(OBJECT hPens , STRING sTagname , STRING sComment , INT iLineColor, INT iHour, INT iMin)
+	OBJECT hPen;
+	hPen = _ObjectCallMethod(hPens, "Create", ANALOG_PEN , USE_CUSTOM_NAME);
+	_ObjectSetProperty(hPen , "LineColor" , iLineColor);
+	_ObjectSetProperty(hPen , "Name" , sComment);
+	_ObjectSetProperty(hPen, "DataPoint", sTagname);
+	_ObjectSetProperty(hPen , "LineWidth" , 2);
+	_ObjectSetProperty(hPen , "Height" , 100);
+	_ObjectSetProperty(hPen , "Stacked" , 0);
+	_ObjectSetProperty(hPen , "VerticalAxisAutoscale" , -1);
+	_ObjectCallMethod(hPen , "SetDefaultSpan" , 0 , 0 , iHour , iMin , 0 , 0);
+	_ObjectCallMethod(hPen , "ResetToDefaultSpan");
+	_ObjectCallMethod(hPen , "GoToNow");
+	RETURN hPen;
+END
+
+
+
+//Description - Integer associatioon that checks if tag exists
+//Caller 	    - Any popup function
+//Args	      - iAssNum -> Association number
+//					  Example: 5 for ?5?
+//				    sTag    -> Name of tag to associate to association
+//					  Example: "CM4000\MMXU1\PPV\AB"
+//				    sCluster -> The cluster the device residues in. Defaults to active cluster
+//					  Example: "MyCluster" if you have a cluster in cluster.DBF named "MyCluster"
+//Return	  - 0 for success or error code 323 for tag doesn't exist
+INT FUNCTION ESAssNum(INT iAssNum , STRING sTag , STRING sCluster = "")
+	//Local Variables
+	INT bValid = 0;
+    
+    //Found constant association
+	IF (StrLeft(sTag, 1) = "'"  AND StrRight(sTag, 1) = "'") THEN
+		bValid = 1;
+	//Found variable tag
+	ELSE IF (TagInfo(sTag, 20, sCluster) <> "") THEN
+		bValid = 1;
+	END END
+	
+	//Associate valid tag
+	IF bValid THEN
+		RETURN Ass(-2, iAssNum , sTag , 0 , sCluster);
+	END
+	
+	//Failed to find tag
+	RETURN 323;
+END
+
+
+
+//Description - String associatioon that checks if tag exists
+//Caller 	    - Any popup function
+//Args	      - sAssNum -> Association number
+//					  Example: "AB_Voltage" for ?AB_Voltage?
+//				    sTag    -> Name of tag to associate to association
+//					  Example: "CM4000\MMXU1\PPV\AB"
+//				    sCluster -> The cluster the device resides in. Defaults to active cluster
+//					  Example: "MyCluster" if you have a cluster in cluster.DBF named "MyCluster"
+//Return	  - 0 for success or error code 323 for tag doesn't exist
+INT 
+FUNCTION ESAssText(STRING sAssText , STRING sTag , STRING sCluster = "")
+	//Local Variables
+	INT bValid = 0;
+	INT iAssReturn;
+    
+    //Found constant association
+	IF (StrLeft(sTag, 1) = "'"  AND StrRight(sTag, 1) = "'") THEN
+		bValid = 1;
+	//Found variable tag
+	ELSE IF (TagInfo(sTag, 20, sCluster) <> "") THEN
+		bValid = 1;
+	END END
+	
+	//Associate valid tag
+	IF bValid THEN
+	  iAssReturn = 0;
+		iAssReturn = Ass(-2, sAssText , sTag , 0 , sCluster); 
+		IF iDebug_On THEN                                         
+				ErrLog("Ass Returned: " + IntToStr(iAssReturn) + " In ESAssText");   
+		END
+		RETURN iAssReturn;
+	END
+	
+	//Failed to find tag
+	IF iDebug_On THEN
+			ErrLog("Tag: " + sTag + " Not Found by ESAssText");
+	END
+	RETURN 323;
+END
+
+
+
+//Description - String associatioon that checks if tag exists and if trend tag exists
+//Caller 	    - Any popup function
+//Args	      - sAssNum -> Association number
+//					  Example: "AB_Voltage" for ?AB_Voltage?
+//				    sTag    -> Name of tag to associate to association
+//					  Example: "CM4000\MMXU1\PPV\AB"
+//				    sCluster -> The cluster the device residues in. Defaults to active cluster
+//					  Example: "MyCluster" if you have a cluster in cluster.DBF named "MyCluster"
+//Return	    - 0 for success or error code 323 for tag doesn't exist
+//Notes 	    - This uses ?sAssText_T? to indicate which tags have trends and which do not
+FUNCTION ESAssText_Trend(STRING sAssText , STRING sTag , STRING sCluster = "")
+	//Associate variable tag
+	ESAssText(sAssText , sTag , sCluster);
+	
+	//Associate trend presence tag
+	IF (TrnInfo(sTag , 1 , sCluster) <> "") THEN
+		//Indicate trend exists
+		ESAssText(sAssText + "_T" , "'0'" , sCluster);
+	ELSE
+		//Indicate trend does not exist
+		ESAssText(sAssText + "_T" , "'1'" , sCluster);
+	END	
+END
+
+
+FUNCTION Test_AlarmRecords(STRING sDev)
+	INT hRPC = MsgOpen("Alarm", 0, 0);
+	INT nAlarmRec = rpcAlarmQueryFirstRec(hRPC);
+	STRING sRecNums;
+	
+	WHILE nAlarmRec <> -1 DO
+		IF (rpcAlarmGetFieldRec(hRPC, nAlarmRec, "Custom1") = sDev AND rpcAlarmGetFieldRec(hRPC, nAlarmRec, "Category") <> "1004") THEN
+			sRecNums = sRecNums + IntToStr(nAlarmRec) + " ";
+		END
+		nAlarmRec = rpcAlarmQueryNextRec(hRPC, nAlarmRec);
+	END
+	
+	Message("TestAlarmRec", sDev + ": " + sRecNums, 64);
+END
+
+	
